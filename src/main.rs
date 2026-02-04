@@ -2,12 +2,14 @@
 #![no_main]
 
 // k9-pad-E73 Firmware
+// Using forked RMK: https://github.com/jenny92-tech/rmk
+// 
 // OLED: SH1107 64x128 (schematic shows SSD1312 placeholder)
 // I2C: SDA=P0.08, SCL=P1.09, RESET=P0.06
 // 
-// NOTE: Display code is ready but requires RMK's upcoming display support
-// or manual keyboard initialization. Current setup uses RMK macro for
-// reliable keyboard operation.
+// NOTE: Display code is ready but requires manual RMK initialization.
+// Current setup uses RMK macro for stable keyboard operation.
+// To enable display, switch to manual init using the fork's _custom_tasks feature.
 
 use core::fmt::Write;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
@@ -64,8 +66,8 @@ impl DisplaySize for DisplaySize64x128 {
 type DisplayString = ArrayString<32>;
 static TX_BUFFER: StaticCell<[u8; 256]> = StaticCell::new();
 
-/// Display driver - ready for integration when RMK display support lands
-/// or when switching to manual keyboard initialization
+/// Display driver - ready for integration
+/// To enable: use forked RMK with _custom_tasks feature
 #[allow(dead_code)]
 pub async fn run_display(
     i2c: Twim<'static>,
@@ -124,6 +126,6 @@ pub async fn run_display(
     }
 }
 
-// RMK keyboard - uses keyboard.toml config
+// RMK keyboard - uses forked version with _custom_tasks feature ready
 #[rmk_keyboard]
 mod keyboard {}
