@@ -1,9 +1,10 @@
 #![no_std]
 #![no_main]
 
-// OLED Display support for SH1107 64x128 (vertical)
+// k9-pad-E73 Firmware
+// OLED: SH1107 64x128 (schematic shows SSD1312 placeholder)
 // I2C: SDA=P0.08, SCL=P1.09, RESET=P0.06
-// Note: Schematic shows SSD1312 placeholder, actual part is SH1107 64x128
+// Note: Display code ready but requires manual keyboard init to enable
 
 use core::fmt::Write;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
@@ -28,55 +29,44 @@ use display_interface::DisplayError;
 use arrayvec::ArrayString;
 use static_cell::StaticCell;
 
-// Panic handler
 use panic_probe as _;
 
-/// Pre-initialization hook - runs before main
-/// Configures DC/DC regulator for low power
+/// Pre-init: Enable DC/DC for low power
 #[cortex_m_rt::pre_init]
 unsafe fn pre_init() {
-    // Enable DC/DC converter for lower power consumption
-    // Address: 0x40000078 (POWER.DCDCEN register)
     const DCDCEN_ADDR: *mut u32 = 0x4000_0078 as *mut u32;
     core::ptr::write_volatile(DCDCEN_ADDR, 1);
 }
 
-// Custom DisplaySize for SH1107 64x128
+// SH1107 64x128 display size
 pub struct DisplaySize64x128;
 
 impl DisplaySize for DisplaySize64x128 {
     const WIDTH: u8 = 64;
     const HEIGHT: u8 = 128;
-    const DRIVER_COLS: u8 = 128; // SH1107 has 128 columns internally
-    const DRIVER_ROWS: u8 = 128; // SH1107 has 128 rows internally
-    const OFFSETX: u8 = 32;      // Center 64px in 128px width
+    const DRIVER_COLS: u8 = 128;
+    const DRIVER_ROWS: u8 = 128;
+    const OFFSETX: u8 = 32;
     const OFFSETY: u8 = 0;
-    type Buffer = [u8; (Self::WIDTH as usize * Self::HEIGHT as usize) / 8]; // 1024 bytes
+    type Buffer = [u8; (Self::WIDTH as usize * Self::HEIGHT as usize) / 8];
 
     fn configure(
         &self,
         iface: &mut impl WriteOnlyDataCommand,
     ) -> Result<(), DisplayError> {
-        // SH1107 uses different COM pin config than SSD1306
-        // Use alternative COM pin config for vertical layout
         Command::ComPinConfig(false, true).send(iface)
     }
 }
 
-// Buffer types
 type DisplayString = ArrayString<32>;
-
-// Static I2C TX buffer
 static TX_BUFFER: StaticCell<[u8; 256]> = StaticCell::new();
 
-/// Initialize and run OLED display task
-/// Displays: device name, status, and uptime
-/// Screen: SH1107 64x128 (vertical layout)
+/// OLED display task - ready to use when manual init is implemented
+#[allow(dead_code)]
 async fn run_display(
     i2c: Twim<'static>,
     reset: Peri<'static, P0_06>,
 ) {
-    // Reset OLED (active low)
     let mut reset_pin = Output::new(reset, Level::High, OutputDrive::Standard);
     reset_pin.set_low();
     Timer::after(Duration::from_millis(10)).await;
@@ -84,17 +74,17 @@ async fn run_display(
     Timer::after(Duration::from_millis(10)).await;
     drop(reset_pin);
 
-    // Initialize SH1107 driver (compatible with SSD1306 commands)
     let interface = I2CDisplayInterface::new_custom_address(i2c, 0x3c);
     let mut display = Ssd1306::new(
         interface,
         DisplaySize64x128,
-        DisplayRotation::Rotate0, // Native 64x128 vertical
+        DisplayRotation::Rotate0,
     )
     .into_buffered_graphics_mode();
     
     if display.init().is_err() {
-        return; // Display init failed
+        defmt::warn!("OLED init failed");
+        return;
     }
 
     let text_style = MonoTextStyleBuilder::new()
@@ -106,78 +96,28 @@ async fn run_display(
     
     loop {
         display.clear(BinaryColor::Off).ok();
-        
-        // On 64x128 vertical screen:
-        // X range: 0-63, Y range: 0-127
-        // Layout optimized for narrow screen
-        Text::with_baseline(
-            "k9",
-            Point::new(0, 0),
-            text_style,
-            Baseline::Top,
-        )
-        .draw(&mut display).ok();
-
-        Text::with_baseline(
-            "pad",
-            Point::new(0, 12),
-            text_style,
-            Baseline::Top,
-        )
-        .draw(&mut display).ok();
-
-        Text::with_baseline(
-            "E73",
-            Point::new(0, 26),
-            text_style,
-            Baseline::Top,
-        )
-        .draw(&mut display).ok();
-
-        // Separator
-        Text::with_baseline(
-            "----",
-            Point::new(0, 42),
-            text_style,
-            Baseline::Top,
-        )
-        .draw(&mut display).ok();
-
-        // Status
-        Text::with_baseline(
-            "BLE",
-            Point::new(0, 56),
-            text_style,
-            Baseline::Top,
-        )
-        .draw(&mut display).ok();
-
-        Text::with_baseline(
-            "OK",
-            Point::new(0, 70),
-            text_style,
-            Baseline::Top,
-        )
-        .draw(&mut display).ok();
-
-        // Uptime
+        Text::with_baseline("k9", Point::new(0, 0), text_style, Baseline::Top)
+            .draw(&mut display).ok();
+        Text::with_baseline("pad", Point::new(0, 12), text_style, Baseline::Top)
+            .draw(&mut display).ok();
+        Text::with_baseline("E73", Point::new(0, 26), text_style, Baseline::Top)
+            .draw(&mut display).ok();
+        Text::with_baseline("----", Point::new(0, 42), text_style, Baseline::Top)
+            .draw(&mut display).ok();
+        Text::with_baseline("BLE", Point::new(0, 56), text_style, Baseline::Top)
+            .draw(&mut display).ok();
+        Text::with_baseline("OK", Point::new(0, 70), text_style, Baseline::Top)
+            .draw(&mut display).ok();
         let mut buf = DisplayString::new();
         write!(&mut buf, "T:{}", seconds).ok();
-        Text::with_baseline(
-            buf.as_str(),
-            Point::new(0, 88),
-            text_style,
-            Baseline::Top,
-        )
-        .draw(&mut display).ok();
-
+        Text::with_baseline(buf.as_str(), Point::new(0, 88), text_style, Baseline::Top)
+            .draw(&mut display).ok();
         display.flush().ok();
         seconds = seconds.wrapping_add(1);
         Timer::after(Duration::from_secs(1)).await;
     }
 }
 
-// RMK keyboard module with low-power configuration
-// DC/DC is enabled via embassy-nrf config in .cargo/config.toml or build.rs
+// Keyboard via RMK macro (uses keyboard.toml config)
 #[rmk_keyboard]
 mod keyboard {}
