@@ -4,7 +4,10 @@
 // k9-pad-E73 Firmware
 // OLED: SH1107 64x128 (schematic shows SSD1312 placeholder)
 // I2C: SDA=P0.08, SCL=P1.09, RESET=P0.06
-// Note: Display code ready but requires manual keyboard init to enable
+// 
+// NOTE: Display code is ready but requires RMK's upcoming display support
+// or manual keyboard initialization. Current setup uses RMK macro for
+// reliable keyboard operation.
 
 use core::fmt::Write;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
@@ -61,9 +64,10 @@ impl DisplaySize for DisplaySize64x128 {
 type DisplayString = ArrayString<32>;
 static TX_BUFFER: StaticCell<[u8; 256]> = StaticCell::new();
 
-/// OLED display task - ready to use when manual init is implemented
+/// Display driver - ready for integration when RMK display support lands
+/// or when switching to manual keyboard initialization
 #[allow(dead_code)]
-async fn run_display(
+pub async fn run_display(
     i2c: Twim<'static>,
     reset: Peri<'static, P0_06>,
 ) {
@@ -108,16 +112,18 @@ async fn run_display(
             .draw(&mut display).ok();
         Text::with_baseline("OK", Point::new(0, 70), text_style, Baseline::Top)
             .draw(&mut display).ok();
+        
         let mut buf = DisplayString::new();
         write!(&mut buf, "T:{}", seconds).ok();
         Text::with_baseline(buf.as_str(), Point::new(0, 88), text_style, Baseline::Top)
             .draw(&mut display).ok();
+        
         display.flush().ok();
         seconds = seconds.wrapping_add(1);
         Timer::after(Duration::from_secs(1)).await;
     }
 }
 
-// Keyboard via RMK macro (uses keyboard.toml config)
+// RMK keyboard - uses keyboard.toml config
 #[rmk_keyboard]
 mod keyboard {}
