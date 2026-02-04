@@ -29,6 +29,7 @@ bt-hci = { version = "0.6", default-features = false, features = ["defmt"] }
 cortex-m = "0.7.7"
 cortex-m-rt = "0.7.5"
 embassy-time = { version = "0.5", features = ["tick-hz-32_768", "defmt"] }
+embassy-sync = { version = "0.6", features = ["defmt"] }
 embassy-nrf = { version = "0.8", features = [
     "defmt",
     "nrf52840",

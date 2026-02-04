@@ -177,7 +177,7 @@ checksum = "bb938a3b4c5cc6c2409275bad789c0346a0495fa071a0acc5d72b9bd3175a2f7"
 dependencies = [
  "btuuid",
  "defmt 1.0.1",
- "embassy-sync",
+ "embassy-sync 0.7.2",
  "embedded-io",
  "embedded-io-async",
  "futures-intrusive",
@@ -685,7 +685,7 @@ dependencies = [
  "defmt 1.0.1",
  "embassy-futures",
  "embassy-hal-internal",
- "embassy-sync",
+ "embassy-sync 0.7.2",
  "embassy-time",
  "embedded-hal 0.2.7",
  "embedded-hal 1.0.0",
@@ -762,7 +762,7 @@ checksum = "b7b2739fbcf6cd206ae08779c7d709087b16577d255f2ea4a45bc4bbbf305b3f"
 dependencies = [
  "embassy-futures",
  "embassy-net-driver",
- "embassy-sync",
+ "embassy-sync 0.7.2",
 ]
 
 [[package]]
@@ -780,7 +780,7 @@ dependencies = [
  "document-features",
  "embassy-embedded-hal",
  "embassy-hal-internal",
- "embassy-sync",
+ "embassy-sync 0.7.2",
  "embassy-time",
  "embassy-time-driver",
  "embassy-time-queue-utils",
@@ -796,6 +796,21 @@ dependencies = [
  "nrf-pac",
  "rand_core 0.6.4",
  "rand_core 0.9.5",
+]
+
+[[package]]
+name = "embassy-sync"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8d2c8cdff05a7a51ba0087489ea44b0b1d97a296ca6b1d6d1a33ea7423d34049"
+dependencies = [
+ "cfg-if",
+ "critical-section",
+ "defmt 0.3.100",
+ "embedded-io-async",
+ "futures-sink",
+ "futures-util",
+ "heapless 0.8.0",
 ]
 
 [[package]]
@@ -858,7 +873,7 @@ dependencies = [
  "defmt 1.0.1",
  "embassy-futures",
  "embassy-net-driver-channel",
- "embassy-sync",
+ "embassy-sync 0.7.2",
  "embassy-usb-driver",
  "embedded-io-async",
  "heapless 0.8.0",
@@ -1397,6 +1412,7 @@ dependencies = [
  "display-interface",
  "embassy-executor",
  "embassy-nrf",
+ "embassy-sync 0.6.2",
  "embassy-time",
  "embedded-graphics",
  "json",
@@ -1512,7 +1528,7 @@ dependencies = [
  "critical-section",
  "defmt 1.0.1",
  "embassy-nrf",
- "embassy-sync",
+ "embassy-sync 0.7.2",
  "embedded-io",
  "embedded-storage",
  "embedded-storage-async",
@@ -1548,7 +1564,7 @@ dependencies = [
  "defmt 1.0.1",
  "embassy-hal-internal",
  "embassy-nrf",
- "embassy-sync",
+ "embassy-sync 0.7.2",
  "embedded-io",
  "embedded-io-async",
  "nrf-mpsl",
@@ -1904,7 +1920,7 @@ dependencies = [
  "embassy-executor",
  "embassy-futures",
  "embassy-nrf",
- "embassy-sync",
+ "embassy-sync 0.7.2",
  "embassy-time",
  "embassy-usb",
  "embedded-hal 1.0.0",
@@ -2366,7 +2382,7 @@ dependencies = [
  "cmac",
  "defmt 1.0.1",
  "embassy-futures",
- "embassy-sync",
+ "embassy-sync 0.7.2",
  "embassy-time",
  "embedded-io",
  "futures",
