@@ -31,6 +31,16 @@ use static_cell::StaticCell;
 // Panic handler
 use panic_probe as _;
 
+/// Pre-initialization hook - runs before main
+/// Configures DC/DC regulator for low power
+#[cortex_m_rt::pre_init]
+unsafe fn pre_init() {
+    // Enable DC/DC converter for lower power consumption
+    // Address: 0x40000078 (POWER.DCDCEN register)
+    const DCDCEN_ADDR: *mut u32 = 0x4000_0078 as *mut u32;
+    core::ptr::write_volatile(DCDCEN_ADDR, 1);
+}
+
 // Custom DisplaySize for SH1107 64x128
 pub struct DisplaySize64x128;
 
@@ -167,7 +177,7 @@ async fn run_display(
     }
 }
 
-// RMK keyboard module - generates keyboard task from keyboard.toml
-// Display support is initialized separately before keyboard starts
+// RMK keyboard module with low-power configuration
+// DC/DC is enabled via embassy-nrf config in .cargo/config.toml or build.rs
 #[rmk_keyboard]
 mod keyboard {}
