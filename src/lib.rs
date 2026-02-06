@@ -8,7 +8,5 @@
 #[cfg(not(test))]
 extern crate core;
 
-#[cfg(not(test))]
-pub mod keycode_defs;
 pub mod mode;
 pub mod menu;

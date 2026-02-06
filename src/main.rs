@@ -11,14 +11,12 @@ use panic_probe as _;
 mod battery;
 mod mode;
 mod display;
-mod keycode_defs;
 mod menu;
 mod wououi;
 
 pub use battery::*;
 pub use mode::*;
 pub use display::run_display;
-pub use keycode_defs::*;
 pub use menu::*;
 
 /// Pre-init: Enable DC/DC for low power

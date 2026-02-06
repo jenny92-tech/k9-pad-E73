@@ -6,8 +6,6 @@
 /// Screen dimensions (from WouoUI_conf.h)
 pub const SCREEN_WIDTH: usize = 128;
 pub const SCREEN_HEIGHT: usize = 64;
-/// Buffer size in bytes (1 bit per pixel, 8 pixels per byte)
-pub const SCREEN_BUFFER_SIZE: usize = SCREEN_WIDTH * SCREEN_HEIGHT / 8;
 
 /// Input types for WouoUI (from WouoUI_port.h)
 #[repr(u8)]

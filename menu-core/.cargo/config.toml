@@ -1,5 +1,0 @@
-# Override parent's embedded target for testing
-# Menu-core is a pure Rust library that can be tested on the host
-
-[build]
-target = "aarch64-apple-darwin"
