@@ -1,0 +1,293 @@
+================================================================================
+RMK 延迟按键功能 (Deferred Key Feature)
+================================================================================
+
+功能说明：
+- 某些按键需要延迟判断（如长按/短按检测），不能立即发送到主机
+- 延迟按键始终被拦截，但 KeyEvent 正常发布给控制器
+- 控制器判断后调用 send_keycode() 手动发送
+
+使用场景：
+- SW1 短按发送 ESC，长按进入菜单
+- 控制器收到按下/释放事件后判断按压时长
+- 短按时调用 send_keycode(Escape, true/false) 发送按键
+- 长按时不发送，直接进入菜单
+
+================================================================================
+文件: rmk/src/lib.rs
+================================================================================
+
+在菜单拦截功能区域添加：
+
+```rust
+// ============================================================================
+// 延迟按键功能 (Deferred Key Feature)
+//
+// 延迟按键会被拦截（不发送到主机），但 KeyEvent 正常发布给控制器
+// 控制器判断后可调用 send_keycode() 手动发送
+// ============================================================================
+
+/// 延迟按键存储（最多 8 个，每个 2 字节: row, col）
+#[cfg(feature = "controller")]
+static DEFERRED_KEYS: [AtomicU8; 16] = [
+    AtomicU8::new(0xFF), AtomicU8::new(0xFF),
+    AtomicU8::new(0xFF), AtomicU8::new(0xFF),
+    AtomicU8::new(0xFF), AtomicU8::new(0xFF),
+    AtomicU8::new(0xFF), AtomicU8::new(0xFF),
+    AtomicU8::new(0xFF), AtomicU8::new(0xFF),
+    AtomicU8::new(0xFF), AtomicU8::new(0xFF),
+    AtomicU8::new(0xFF), AtomicU8::new(0xFF),
+    AtomicU8::new(0xFF), AtomicU8::new(0xFF),
+];
+
+/// 配置延迟按键
+///
+/// 延迟按键会被拦截但 KeyEvent 仍发布给控制器，
+/// 控制器可调用 send_keycode() 决定是否发送
+///
+/// # Example
+/// ```ignore
+/// // SW1 设为延迟按键，用于长按/短按检测
+/// rmk::deferred_key_set(0, 0, 3);
+/// ```
+#[cfg(feature = "controller")]
+pub fn deferred_key_set(index: usize, row: u8, col: u8) {
+    if index < 8 {
+        DEFERRED_KEYS[index * 2].store(row, Ordering::Relaxed);
+        DEFERRED_KEYS[index * 2 + 1].store(col, Ordering::Relaxed);
+    }
+}
+
+/// 清除延迟按键配置
+#[cfg(feature = "controller")]
+pub fn deferred_key_clear(index: usize) {
+    if index < 8 {
+        DEFERRED_KEYS[index * 2].store(0xFF, Ordering::Relaxed);
+        DEFERRED_KEYS[index * 2 + 1].store(0xFF, Ordering::Relaxed);
+    }
+}
+
+/// 检查是否是延迟按键
+#[cfg(feature = "controller")]
+#[inline]
+pub fn is_deferred_key(row: u8, col: u8) -> bool {
+    for i in 0..8 {
+        let r = DEFERRED_KEYS[i * 2].load(Ordering::Relaxed);
+        let c = DEFERRED_KEYS[i * 2 + 1].load(Ordering::Relaxed);
+        if r == row && c == col {
+            return true;
+        }
+    }
+    false
+}
+
+// ============================================================================
+// 手动发送按键功能 (Manual Key Send)
+// ============================================================================
+
+use channel::KEYBOARD_REPORT_CHANNEL;
+use hid::Report;
+use descriptor::KeyboardReport;
+
+/// 待发送的按键队列
+#[cfg(feature = "controller")]
+static PENDING_KEYCODES: Channel<RawMutex, (KeyCode, bool), 8> = Channel::new();
+
+/// 手动发送按键
+///
+/// 控制器调用此函数发送按键到主机
+///
+/// # Arguments
+/// * `keycode` - 要发送的键码
+/// * `pressed` - true=按下, false=释放
+///
+/// # Example
+/// ```ignore
+/// // 发送 ESC 按下和释放
+/// rmk::send_keycode(KeyCode::Escape, true);
+/// rmk::send_keycode(KeyCode::Escape, false);
+/// ```
+#[cfg(feature = "controller")]
+pub fn send_keycode(keycode: KeyCode, pressed: bool) {
+    let _ = PENDING_KEYCODES.try_send((keycode, pressed));
+}
+
+/// 处理待发送的按键（在键盘主循环中调用）
+///
+/// 返回是否有按键被处理
+#[cfg(feature = "controller")]
+pub(crate) fn process_pending_keycodes() -> bool {
+    let mut processed = false;
+    while let Ok((keycode, pressed)) = PENDING_KEYCODES.try_receive() {
+        // 构建并发送 HID 报告
+        let mut report = KeyboardReport::default();
+        if pressed {
+            // 按下：添加键码（KeyCode::Hid 变体才是普通键盘键）
+            if let KeyCode::Hid(hid_code) = keycode {
+                report.keycodes[0] = hid_code;
+            }
+        }
+        // 释放：发送空报告（键码已移除）
+        let _ = KEYBOARD_REPORT_CHANNEL.try_send(Report::KeyboardReport(report));
+        processed = true;
+    }
+    processed
+}
+```
+
+注意：需要在文件顶部添加必要的 import：
+```rust
+use rmk_types::keycode::KeyCode;
+use embassy_sync::channel::Channel;
+```
+
+================================================================================
+文件: rmk/src/keyboard.rs
+================================================================================
+
+1. 在文件顶部添加 import：
+
+```rust
+#[cfg(feature = "controller")]
+use crate::is_deferred_key;
+```
+
+2. 修改 process_key_action_inner 函数，在菜单拦截检查之前添加延迟按键检查：
+
+```rust
+async fn process_key_action_inner(&mut self, original_key_action: &KeyAction, event: KeyboardEvent) {
+    // Start forks
+    let key_action = self.try_start_forks(original_key_action, event);
+
+    // Clear with_modifier if a new key is pressed
+    if self.with_modifiers.into_bits() != 0 && event.pressed {
+        self.with_modifiers = ModifierCombination::new();
+    }
+
+    #[cfg(feature = "_ble")]
+    LAST_KEY_TIMESTAMP.signal(Instant::now().as_secs() as u32);
+
+    #[cfg(feature = "controller")]
+    publish_controller_event(KeyEvent {
+        keyboard_event: event,
+        key_action,
+    });
+
+    // ====== 延迟按键检查 ======
+    // 延迟按键始终被拦截，但 KeyEvent 已发布给控制器
+    #[cfg(feature = "controller")]
+    {
+        if let KeyboardEventPos::Key(KeyPos { row, col }) = event.pos {
+            if is_deferred_key(row, col) {
+                // 延迟按键：控制器会决定是否发送
+                self.try_finish_forks(original_key_action, event);
+                return;
+            }
+        }
+    }
+    // ====== 延迟按键检查结束 ======
+
+    // ====== 菜单拦截检查 ======
+    #[cfg(feature = "controller")]
+    {
+        let should_intercept = match event.pos {
+            KeyboardEventPos::Key(KeyPos { row, col }) => should_intercept_key(row, col),
+            KeyboardEventPos::RotaryEncoder(_) => should_intercept_encoder(),
+        };
+        if should_intercept {
+            self.try_finish_forks(original_key_action, event);
+            return;
+        }
+    }
+    // ====== 菜单拦截结束 ======
+
+    // ... 原有的按键处理代码 ...
+}
+```
+
+3. 在键盘主循环 run() 函数中添加待发送按键处理：
+
+在 `let event = KEY_EVENT_CHANNEL.receive().await;` 之前添加：
+
+```rust
+// 处理待发送的按键（来自 send_keycode）
+#[cfg(feature = "controller")]
+crate::process_pending_keycodes();
+```
+
+================================================================================
+K9-Pad 使用示例
+================================================================================
+
+state.rs 中修改 init_menu_intercept：
+
+```rust
+#[cfg(not(test))]
+pub fn init_menu_intercept() {
+    // SW1 设为延迟按键（长按/短按检测）
+    rmk::deferred_key_set(0, 0, 3);  // SW1 (ESC) at ROW0/COL3
+
+    // 确认键设为拦截按键（菜单模式下不发送）
+    rmk::menu_intercept_set_key(0, 0, 2);  // W4B152110 at ROW0/COL2
+
+    // 启用编码器拦截
+    rmk::MENU_INTERCEPT_ENCODER.store(true, Ordering::Relaxed);
+
+    defmt::info!("Menu: SW1 deferred, Select intercepted, Encoder intercepted");
+}
+```
+
+controller.rs 中修改 handle_sw1：
+
+```rust
+/// 处理 SW1 (ESC)
+async fn handle_sw1(&mut self, pressed: bool) {
+    if pressed {
+        // 按下：记录时间
+        self.sw1_press_time = Some(Instant::now());
+        self.sw1_long_triggered = false;
+    } else {
+        // 释放
+        if let Some(press_time) = self.sw1_press_time.take() {
+            // 如果已触发长按，不处理释放
+            if self.sw1_long_triggered {
+                self.sw1_long_triggered = false;
+                return;
+            }
+
+            let duration = press_time.elapsed();
+            if duration.as_millis() < 300 {
+                // 短按
+                if self.menu_active {
+                    // 菜单模式：返回/退出，不发送 ESC
+                    let _ = MENU_INPUT.try_send(MenuInput::Back);
+                    defmt::info!("Menu: SW1 short press -> Back");
+                } else {
+                    // 正常模式：手动发送 ESC
+                    rmk::send_keycode(rmk::types::keycode::KeyCode::Escape, true);
+                    rmk::send_keycode(rmk::types::keycode::KeyCode::Escape, false);
+                    defmt::info!("Menu: SW1 short press -> Send ESC");
+                }
+            }
+            // 长按（300-500ms 之间释放）：什么都不做
+        }
+    }
+}
+```
+
+================================================================================
+API 总结
+================================================================================
+
+| 函数 | 说明 |
+|------|------|
+| `deferred_key_set(index, row, col)` | 配置延迟按键 |
+| `deferred_key_clear(index)` | 清除延迟按键配置 |
+| `is_deferred_key(row, col)` | 检查是否是延迟按键 |
+| `send_keycode(keycode, pressed)` | 手动发送按键到主机 |
+
+延迟按键 vs 拦截按键：
+- **延迟按键**：始终被拦截，控制器判断后手动发送
+- **拦截按键**：仅在 MENU_MODE_ACTIVE=true 时被拦截
+
+================================================================================

@@ -11,14 +11,20 @@ use panic_probe as _;
 mod battery;
 mod mode;
 mod display;
-mod keyboard;
+mod keycode_defs;
+mod menu;
+mod wououi;
 
 pub use battery::*;
 pub use mode::*;
 pub use display::run_display;
-pub use keyboard::*;
+pub use keycode_defs::*;
+pub use menu::*;
 
 /// Pre-init: Enable DC/DC for low power
+// SAFETY: Called by cortex-m-rt before main. The address 0x4000_0078 is the
+// nRF52840 POWER.DCDCEN register. Writing 1 enables the DC/DC converter.
+// No other code runs at this point, so there are no data races.
 #[cortex_m_rt::pre_init]
 unsafe fn pre_init() {
     const DCDCEN_ADDR: *mut u32 = 0x4000_0078 as *mut u32;
@@ -27,4 +33,15 @@ unsafe fn pre_init() {
 
 // RMK keyboard macro
 #[rmk_keyboard]
-mod keyboard {}
+mod keyboard {
+    use crate::menu::MenuController;
+    use rmk::controller::PollingController;
+
+    /// 注册菜单控制器
+    /// 监听 KeyEvent，在菜单模式下将按键转换为菜单输入
+    /// 使用 poll 模式每 50ms 检测 SW1 长按
+    #[register_controller(poll)]
+    fn menu_controller() -> MenuController {
+        MenuController::new()
+    }
+}

@@ -10,9 +10,11 @@ chip = "nrf52840"
 # From schematic netlist
 # Rows: ROW0=P1.11, ROW1=P1.10, ROW2=P0.03
 row_pins = ["P1_11", "P1_10", "P0_03"]
-# Cols: COL0=P1.13, COL1=P0.02(AI0), COL2=P0.05(AI5), COL3=P0.07(AI7)
-col_pins = ["P1_13", "P0_02", "P0_05", "P0_07"]
+# Cols: COL0=P1.13, COL1=P0.02(AI0), COL2=P0.29(AI5), COL3=P0.31(AI7)
+col_pins = ["P1_13", "P0_02", "P0_29", "P0_31"]
 # Diodes are wired from column side (anode) -> row side (cathode), so col2row is correct (default).
+# 去抖动配置
+debouncer = "default"
 
 [layout]
 rows = 3
@@ -29,18 +31,25 @@ keymap = [
     ["Kc6", "Kc7", "Kc8", "Kc9"],
   ]
 ]
-
-[encoder]
-enabled = true
-# 丰实 E8A1-4C40-9B15 编码器
-# A相 -> P0.20 (NF2), B相 -> P0.18 (NF1)
-encoders = [
-    { pin_a = "P0_20", pin_b = "P0_18" }
+# 编码器映射: [顺时针, 逆时针] - 非菜单模式下发送音量键
+encoder_map = [
+  [["AudioVolUp", "AudioVolDown"]]
 ]
+
+# TTC旋转编码器 (U4) E8A1-4C40-9B15
+# 9 pulse / 18 detent, 正交A/B信号
+# A相 -> P0.10 (NF2/Pin43), B相 -> P0.09 (NF1/Pin41)
+# C公共端 + 结构脚 -> GND
+[[input_device.encoder]]
+pin_a = "P0_10"
+pin_b = "P0_09"
+phase = "resolution"
+resolution = 2
+internal_pullup = true
 
 [display]
 enabled = true
-# SSD1312 128x64 I2C OLED
+# SH1107 64x128 I2C OLED (横放，旋转后 128x64)
 width = 128
 height = 64
 i2c = { sda = "P0_08", scl = "P1_09", reset = "P0_06", address = "0x3c" }

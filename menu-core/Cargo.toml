@@ -1,0 +1,11 @@
+[package]
+name = "menu-core"
+version = "0.1.0"
+edition = "2021"
+description = "Pure logic for K9-Pad menu system (testable without hardware)"
+
+[dependencies]
+# No dependencies - pure Rust logic only
+
+[dev-dependencies]
+# Testing only
