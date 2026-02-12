@@ -1,47 +1,64 @@
 /**
  * WouoUI K9-Pad Menu Configuration
  *
- * K9-Pad specific menu pages and icons
+ * TitlePage main menu (6 items):
+ *   Pad A / Pad B / Pad C / User / Settings / About
+ *
+ * Sub-pages:
+ *   Pad A/B/C: "Enable" action (activates that pad/layer)
+ *   User: User A/B/C radio (BLE multi-device) + Clear Bond
+ *   Settings: BLE toggle + Brightness slider
+ *   About: firmware info
  */
 
 #include "WouoUI.h"
-#include "WouoUI_port.h"
 
 //--------定义页面对象
 static TitlePage main_page;
-static ListPage mode_page;
-static ListPage ble_page;
+static ListPage pad_a_page;
+static ListPage pad_b_page;
+static ListPage pad_c_page;
+static ListPage user_page;
+static ListPage settings_page;
 static ListPage about_page;
 static MsgWin msg_win;
+static ValWin brightness_win;
+
+//--------当前选中的 Pad (0=A, 1=B, 2=C)
+static uint8_t g_selected_pad = 0;
 
 //--------页面选项数量
-#define MAIN_PAGE_NUM   4
-#define MODE_PAGE_NUM   4
-#define BLE_PAGE_NUM    5
-#define ABOUT_PAGE_NUM  4
+#define MAIN_PAGE_NUM       6
+#define PAD_PAGE_NUM        2
+#define USER_PAGE_NUM       5
+#define SETTINGS_PAGE_NUM   3
+#define ABOUT_PAGE_NUM      4
 
 //--------主菜单选项
 static Option main_option_array[MAIN_PAGE_NUM] = {
-    {.text = (char *)"- K9-Pad"},
-    {.text = (char *)"+ Mode"},
-    {.text = (char *)"+ BLE"},
-    {.text = (char *)"- About"}
+    {.text = (char *)"+ Pad A"},
+    {.text = (char *)"+ Pad B"},
+    {.text = (char *)"+ Pad C"},
+    {.text = (char *)"+ User"},
+    {.text = (char *)"+ Settings"},
+    {.text = (char *)"+ About"}
 };
 
-// 主菜单图标 (30x30)
+// 主菜单图标 (30x30) - 6 icons
+// Pad A/B/C: Grid icon, User: Home icon, Settings: BLE icon, About: Info icon
 static Icon main_icon_array[MAIN_PAGE_NUM] = {
-    // Home icon
+    // [0] Pad A - Grid/Pad icon
     [0] = {
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0xC0, 0xE0, 0xF0, 0xF8, 0xFC, 0xFE, 0xFF, 0xFE, 0xFC,
-        0xFC, 0xFE, 0xFF, 0xFE, 0xFC, 0xF8, 0xF0, 0xE0, 0xC0, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0xF0, 0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE, 0xF0, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x0F, 0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F,
-        0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F, 0x0F, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x03, 0x07, 0x0F, 0x1F, 0x1C, 0x1C, 0x1C, 0x1C, 0x1C,
-        0x1C, 0x1C, 0x1C, 0x1C, 0x1C, 0x1F, 0x0F, 0x07, 0x03, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00
+        0x00, 0x00, 0xF8, 0xFC, 0xFE, 0x0E, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06,
+        0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x0E, 0xFE, 0xFC, 0xF8, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0xFC, 0xFC, 0xFC, 0x00, 0x00, 0xFC, 0xFC, 0xFC,
+        0x00, 0x00, 0xFC, 0xFC, 0xFC, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x3F, 0x3F, 0x3F, 0x00, 0x00, 0x3F, 0x3F, 0x3F,
+        0x00, 0x00, 0x3F, 0x3F, 0x3F, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x1F, 0x3F, 0x7F, 0x70, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60,
+        0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x70, 0x7F, 0x3F, 0x1F, 0x00, 0x00, 0x00
     },
-    // Mode icon
+    // [1] Pad B - Grid/Pad icon (same)
     [1] = {
         0x00, 0x00, 0xF8, 0xFC, 0xFE, 0x0E, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06,
         0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x0E, 0xFE, 0xFC, 0xF8, 0x00, 0x00, 0x00,
@@ -52,8 +69,30 @@ static Icon main_icon_array[MAIN_PAGE_NUM] = {
         0x00, 0x00, 0x1F, 0x3F, 0x7F, 0x70, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60,
         0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x70, 0x7F, 0x3F, 0x1F, 0x00, 0x00, 0x00
     },
-    // BLE icon
+    // [2] Pad C - Grid/Pad icon (same)
     [2] = {
+        0x00, 0x00, 0xF8, 0xFC, 0xFE, 0x0E, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06,
+        0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x0E, 0xFE, 0xFC, 0xF8, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0xFC, 0xFC, 0xFC, 0x00, 0x00, 0xFC, 0xFC, 0xFC,
+        0x00, 0x00, 0xFC, 0xFC, 0xFC, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x3F, 0x3F, 0x3F, 0x00, 0x00, 0x3F, 0x3F, 0x3F,
+        0x00, 0x00, 0x3F, 0x3F, 0x3F, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x1F, 0x3F, 0x7F, 0x70, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60,
+        0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x70, 0x7F, 0x3F, 0x1F, 0x00, 0x00, 0x00
+    },
+    // [3] User - Home icon (person's home)
+    [3] = {
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0xC0, 0xE0, 0xF0, 0xF8, 0xFC, 0xFE, 0xFF, 0xFE, 0xFC,
+        0xFC, 0xFE, 0xFF, 0xFE, 0xFC, 0xF8, 0xF0, 0xE0, 0xC0, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0xF0, 0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE, 0xF0, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x0F, 0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F,
+        0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F, 0x0F, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x03, 0x07, 0x0F, 0x1F, 0x1C, 0x1C, 0x1C, 0x1C, 0x1C,
+        0x1C, 0x1C, 0x1C, 0x1C, 0x1C, 0x1F, 0x0F, 0x07, 0x03, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00
+    },
+    // [4] Settings - BLE icon (placeholder)
+    [4] = {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0xC0, 0xE0, 0xF0, 0xF8, 0x78, 0x38, 0x18, 0x08,
         0x08, 0x18, 0x38, 0x78, 0xF8, 0xF0, 0xE0, 0xC0, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x18, 0x38, 0x78, 0xF8, 0xF0, 0xE1, 0xC3, 0x87, 0x0F, 0x1F, 0x3E, 0x7C, 0xF8, 0xF0,
@@ -63,8 +102,8 @@ static Icon main_icon_array[MAIN_PAGE_NUM] = {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x03, 0x07, 0x0F, 0x1F, 0x1E, 0x1C, 0x18, 0x10,
         0x10, 0x18, 0x1C, 0x1E, 0x1F, 0x0F, 0x07, 0x03, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
     },
-    // About icon
-    [3] = {
+    // [5] About - Info icon
+    [5] = {
         0x00, 0x00, 0x80, 0xE0, 0xF0, 0xF8, 0xFC, 0x3C, 0x1E, 0x0E, 0x0E, 0x06, 0x06, 0x06, 0x06,
         0x06, 0x06, 0x06, 0x06, 0x0E, 0x0E, 0x1E, 0x3C, 0xFC, 0xF8, 0xF0, 0xE0, 0x80, 0x00, 0x00,
         0x00, 0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0x01, 0x00, 0x00, 0x00, 0xFC, 0xFC, 0xFC, 0xFC, 0x00,
@@ -76,24 +115,41 @@ static Icon main_icon_array[MAIN_PAGE_NUM] = {
     }
 };
 
-//--------模式选择页面选项
-static Option mode_option_array[MODE_PAGE_NUM] = {
-    {.text = (char *)"- Mode Select"},
-    {.text = (char *)"@ MEDIA", .val = 1},
-    {.text = (char *)"@ EXCEL", .val = 0},
-    {.text = (char *)"@ CLAUDE", .val = 0}
+//--------Pad A 子页面选项
+static Option pad_a_option_array[PAD_PAGE_NUM] = {
+    {.text = (char *)"- Pad A"},
+    {.text = (char *)"- Enable"}
 };
 
-//--------蓝牙设置页面选项
-static Option ble_option_array[BLE_PAGE_NUM] = {
-    {.text = (char *)"- Bluetooth"},
-    {.text = (char *)"- BT Channel 0"},
-    {.text = (char *)"- BT Channel 1"},
-    {.text = (char *)"- BT Channel 2"},
+//--------Pad B 子页面选项
+static Option pad_b_option_array[PAD_PAGE_NUM] = {
+    {.text = (char *)"- Pad B"},
+    {.text = (char *)"- Enable"}
+};
+
+//--------Pad C 子页面选项
+static Option pad_c_option_array[PAD_PAGE_NUM] = {
+    {.text = (char *)"- Pad C"},
+    {.text = (char *)"- Enable"}
+};
+
+//--------User 页面选项 (BLE 多设备)
+static Option user_option_array[USER_PAGE_NUM] = {
+    {.text = (char *)"- User"},
+    {.text = (char *)"@ User A", .val = 1},
+    {.text = (char *)"@ User B", .val = 0},
+    {.text = (char *)"@ User C", .val = 0},
     {.text = (char *)"# Clear Bond"}
 };
 
-//--------关于页面选项
+//--------Settings 页面选项
+static Option settings_option_array[SETTINGS_PAGE_NUM] = {
+    {.text = (char *)"- Settings"},
+    {.text = (char *)"@ BLE", .val = 1},
+    {.text = (char *)"~ Brightness", .val = 80}
+};
+
+//--------About 页面选项
 static Option about_option_array[ABOUT_PAGE_NUM] = {
     {.text = (char *)"- About K9-Pad"},
     {.text = (char *)"- FW: v0.2.0"},
@@ -102,6 +158,8 @@ static Option about_option_array[ABOUT_PAGE_NUM] = {
 };
 
 //--------回调函数
+
+// 主菜单回调：跳转到各子页面
 static bool MainPage_Callback(const Page *cur_page, InputMsg msg) {
     if (msg != msg_click) return false;
 
@@ -109,31 +167,41 @@ static bool MainPage_Callback(const Page *cur_page, InputMsg msg) {
     if (opt == NULL) return false;
 
     switch (opt->order) {
-        case 0: // K9-Pad info
-            WouoUI_MsgWinPageSetContent(&msg_win, (char*)"K9-Pad E73\n9-Key BLE Keyboard\nwith OLED Display");
-            WouoUI_JumpToPage((PageAddr)cur_page, &msg_win);
-            break;
-        case 1: // Mode
-            WouoUI_JumpToPage((PageAddr)cur_page, &mode_page);
-            break;
-        case 2: // BLE
-            WouoUI_JumpToPage((PageAddr)cur_page, &ble_page);
-            break;
-        case 3: // About
-            WouoUI_JumpToPage((PageAddr)cur_page, &about_page);
-            break;
+        case 0: WouoUI_JumpToPage((PageAddr)cur_page, &pad_a_page); break;
+        case 1: WouoUI_JumpToPage((PageAddr)cur_page, &pad_b_page); break;
+        case 2: WouoUI_JumpToPage((PageAddr)cur_page, &pad_c_page); break;
+        case 3: WouoUI_JumpToPage((PageAddr)cur_page, &user_page); break;
+        case 4: WouoUI_JumpToPage((PageAddr)cur_page, &settings_page); break;
+        case 5: WouoUI_JumpToPage((PageAddr)cur_page, &about_page); break;
     }
     return false;
 }
 
-static bool ModePage_Callback(const Page *cur_page, InputMsg msg) {
-    (void)cur_page;
-    (void)msg;
-    // Mode selection is handled automatically by ListPage for checkbox items
+// Pad 子页面回调（3 个 Pad 页面共用）
+static bool PadPage_Callback(const Page *cur_page, InputMsg msg) {
+    if (msg != msg_click) return false;
+
+    Option* opt = WouoUI_ListTitlePageGetSelectOpt(cur_page);
+    if (opt == NULL || opt->order != 1) return false;
+
+    // 根据页面地址确定是哪个 Pad
+    if ((PageAddr)cur_page == (PageAddr)&pad_a_page) {
+        g_selected_pad = 0;
+        WouoUI_MsgWinPageSetContent(&msg_win, (char*)"Pad A Enabled!");
+    } else if ((PageAddr)cur_page == (PageAddr)&pad_b_page) {
+        g_selected_pad = 1;
+        WouoUI_MsgWinPageSetContent(&msg_win, (char*)"Pad B Enabled!");
+    } else if ((PageAddr)cur_page == (PageAddr)&pad_c_page) {
+        g_selected_pad = 2;
+        WouoUI_MsgWinPageSetContent(&msg_win, (char*)"Pad C Enabled!");
+    }
+
+    WouoUI_JumpToPage((PageAddr)cur_page, &msg_win);
     return false;
 }
 
-static bool BlePage_Callback(const Page *cur_page, InputMsg msg) {
+// User 页面回调
+static bool UserPage_Callback(const Page *cur_page, InputMsg msg) {
     if (msg != msg_click) return false;
 
     Option* opt = WouoUI_ListTitlePageGetSelectOpt(cur_page);
@@ -143,12 +211,30 @@ static bool BlePage_Callback(const Page *cur_page, InputMsg msg) {
         WouoUI_MsgWinPageSetContent(&msg_win, (char*)"Bond info cleared!");
         WouoUI_JumpToPage((PageAddr)cur_page, &msg_win);
     }
+    // Radio items (order 1-3) are auto-handled by Setting_radio
+    return false;
+}
+
+// Settings 页面回调
+static bool SettingsPage_Callback(const Page *cur_page, InputMsg msg) {
+    if (msg != msg_click) return false;
+
+    Option* opt = WouoUI_ListTitlePageGetSelectOpt(cur_page);
+    if (opt == NULL) return false;
+
+    switch (opt->order) {
+        case 1: // BLE toggle - auto handled by @ checkbox
+            break;
+        case 2: // Brightness - jump to ValWin
+            WouoUI_JumpToPage((PageAddr)cur_page, &brightness_win);
+            break;
+    }
     return false;
 }
 
 //--------初始化函数
 void WouoUI_UserInit(void) {
-    // Initialize main page (TitlePage with icons)
+    // 主菜单 (TitlePage with 6 icons)
     WouoUI_TitlePageInit(
         &main_page,
         MAIN_PAGE_NUM,
@@ -157,43 +243,55 @@ void WouoUI_UserInit(void) {
         MainPage_Callback
     );
 
-    // Initialize mode selection page (ListPage with radio buttons)
-    WouoUI_ListPageInit(
-        &mode_page,
-        MODE_PAGE_NUM,
-        mode_option_array,
-        Setting_radio,  // Radio button mode
-        ModePage_Callback
-    );
+    // Pad A/B/C 子页面
+    WouoUI_ListPageInit(&pad_a_page, PAD_PAGE_NUM, pad_a_option_array, Setting_none, PadPage_Callback);
+    WouoUI_ListPageInit(&pad_b_page, PAD_PAGE_NUM, pad_b_option_array, Setting_none, PadPage_Callback);
+    WouoUI_ListPageInit(&pad_c_page, PAD_PAGE_NUM, pad_c_option_array, Setting_none, PadPage_Callback);
 
-    // Initialize BLE settings page
-    WouoUI_ListPageInit(
-        &ble_page,
-        BLE_PAGE_NUM,
-        ble_option_array,
-        Setting_none,
-        BlePage_Callback
-    );
+    // User 页面 (radio buttons for BLE multi-device)
+    WouoUI_ListPageInit(&user_page, USER_PAGE_NUM, user_option_array, Setting_radio, UserPage_Callback);
 
-    // Initialize about page
-    WouoUI_ListPageInit(
-        &about_page,
-        ABOUT_PAGE_NUM,
-        about_option_array,
-        Setting_none,
-        NULL
-    );
+    // Settings 页面
+    WouoUI_ListPageInit(&settings_page, SETTINGS_PAGE_NUM, settings_option_array, Setting_none, SettingsPage_Callback);
 
-    // Initialize message window (content, auto_bg, move_step, callback)
+    // About 页面
+    WouoUI_ListPageInit(&about_page, ABOUT_PAGE_NUM, about_option_array, Setting_none, NULL);
+
+    // 共用消息弹窗
     WouoUI_MsgWinPageInit(&msg_win, NULL, false, 2, NULL);
+
+    // 亮度调节弹窗 (auto_get_bg_opt=true, auto_set_bg_opt=true)
+    // 自动读写 settings_page 中 Brightness 选项的 val
+    WouoUI_ValWinPageInit(&brightness_win, NULL, 80, 0, 100, 5, true, true, NULL);
 }
 
-// Get selected mode (0=MEDIA, 1=EXCEL, 2=CLAUDE)
-uint8_t WouoUI_K9Pad_GetSelectedMode(void) {
-    for (uint8_t i = 1; i < MODE_PAGE_NUM; i++) {
-        if (mode_option_array[i].val != 0) {
-            return i - 1;  // Subtract 1 because first item is label
+// Get selected pad index (0=Pad A, 1=Pad B, 2=Pad C)
+uint8_t WouoUI_K9Pad_GetSelectedPad(void) {
+    return g_selected_pad;
+}
+
+// Set selected pad (for syncing menu state from external source)
+void WouoUI_K9Pad_SetSelectedPad(uint8_t pad) {
+    if (pad > 2) pad = 0;
+    g_selected_pad = pad;
+}
+
+// Get brightness value (0-100)
+uint8_t WouoUI_K9Pad_GetBrightness(void) {
+    return (uint8_t)settings_option_array[2].val;
+}
+
+// Get BLE enabled state (1=on, 0=off)
+uint8_t WouoUI_K9Pad_GetBleEnabled(void) {
+    return (uint8_t)(settings_option_array[1].val != 0);
+}
+
+// Get selected user index (0=User A, 1=User B, 2=User C)
+uint8_t WouoUI_K9Pad_GetSelectedUser(void) {
+    for (uint8_t i = 1; i <= 3; i++) {
+        if (user_option_array[i].val != 0) {
+            return i - 1;
         }
     }
-    return 0;  // Default to MEDIA
+    return 0;
 }

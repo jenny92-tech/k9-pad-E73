@@ -42,8 +42,6 @@ pub enum PageId {
     Home,
     /// 主菜单
     MainMenu,
-    /// 模式选择
-    ModeSelect,
     /// 蓝牙设置
     BleSettings,
     /// 关于

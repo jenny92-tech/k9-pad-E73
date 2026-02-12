@@ -5,6 +5,7 @@ vendor_id = 0x4c4b
 product_id = 0x4643
 manufacturer = "k9"
 chip = "nrf52840"
+usb_enable = true
 
 [matrix]
 # From schematic netlist
@@ -19,21 +20,36 @@ debouncer = "default"
 [layout]
 rows = 3
 cols = 4
-layers = 1
+layers = 3
 # 10-key mapping + 1 encoder
 # Row0: [_, _, U2, SW1]
 # Row1: [SW2, SW3, SW4, SW5]
 # Row2: [SW6, SW7, SW8, SW9]
 keymap = [
+  # Layer 0 - Pad A (default)
   [
     ["_", "_", "Kc0", "Kc1"],
     ["Kc2", "Kc3", "Kc4", "Kc5"],
     ["Kc6", "Kc7", "Kc8", "Kc9"],
-  ]
+  ],
+  # Layer 1 - Pad B
+  [
+    ["_", "_", "Kc0", "Kc1"],
+    ["Kc2", "Kc3", "Kc4", "Kc5"],
+    ["Kc6", "Kc7", "Kc8", "Kc9"],
+  ],
+  # Layer 2 - Pad C
+  [
+    ["_", "_", "Kc0", "Kc1"],
+    ["Kc2", "Kc3", "Kc4", "Kc5"],
+    ["Kc6", "Kc7", "Kc8", "Kc9"],
+  ],
 ]
 # 编码器映射: [顺时针, 逆时针] - 非菜单模式下发送音量键
 encoder_map = [
-  [["AudioVolUp", "AudioVolDown"]]
+  [["AudioVolUp", "AudioVolDown"]],
+  [["AudioVolUp", "AudioVolDown"]],
+  [["AudioVolUp", "AudioVolDown"]],
 ]
 
 # TTC旋转编码器 (U4) E8A1-4C40-9B15

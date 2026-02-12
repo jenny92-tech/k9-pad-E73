@@ -1,15 +1,15 @@
 // menu/controller.rs - 菜单控制器
 //
-// 使用 RMK 的 controller 机制订阅按键事件
-// 在菜单模式下将按键转换为菜单输入
+// 手动订阅 KeyEvent，在菜单模式下将按键转换为菜单输入
 //
 // 注意：这个控制器只能**监听**事件，不能**拦截**事件
 // 所以在菜单模式下，按键仍会发送键码
 
-use embassy_time::Instant;
-use rmk::event::{KeyEvent, KeyboardEventPos, KeyPos, RotaryEncoderPos};
+use rmk::embassy_futures::select::{Either, select};
+use embassy_time::{Duration, Instant, Timer};
+use rmk::event::{EventSubscriber, KeyboardEventPos, KeyPos, RotaryEncoderPos};
 use rmk::input_device::rotary_encoder::Direction;
-use rmk::macros::controller;
+use rmk::KeyEvent;
 
 use super::state::{MenuInput, MENU_INPUT, MENU_STATE};
 
@@ -28,10 +28,6 @@ const ENCODER_ID: u8 = 0;
 const LONG_PRESS_MS: u64 = 500;
 
 /// 菜单控制器
-///
-/// 订阅 KeyEvent，在菜单模式下转换为菜单输入
-/// 使用 50ms 轮询间隔检测长按
-#[controller(subscribe = [KeyEvent], poll_interval = 50)]
 pub struct MenuController {
     /// SW1 按下时间
     sw1_press_time: Option<Instant>,
@@ -53,7 +49,28 @@ impl MenuController {
         }
     }
 
-    /// 处理 KeyEvent（由 controller 宏自动调用）
+    /// 主循环：订阅 KeyEvent + 50ms 轮询
+    pub async fn run(&mut self) -> ! {
+        let mut subscriber = rmk::key_event_subscriber();
+
+        loop {
+            match select(
+                subscriber.next_event(),
+                Timer::after(Duration::from_millis(50)),
+            )
+            .await
+            {
+                Either::First(event) => {
+                    self.on_key_event(event).await;
+                }
+                Either::Second(_) => {
+                    self.poll().await;
+                }
+            }
+        }
+    }
+
+    /// 处理 KeyEvent
     async fn on_key_event(&mut self, event: KeyEvent) {
         // 更新菜单状态缓存
         let old_active = self.menu_active;
@@ -130,7 +147,7 @@ impl MenuController {
         }
     }
 
-    /// 轮询方法（由 controller 宏每 50ms 调用）
+    /// 轮询方法（每 50ms 调用）
     /// 检测 SW1 长按
     async fn poll(&mut self) {
         // 更新菜单状态缓存

@@ -24,7 +24,7 @@ use crate::mode::CURRENT_MODE;
 use crate::battery::BATTERY_STATUS;
 use crate::wououi::{WouoUI, WououiInput, SCREEN_WIDTH, SCREEN_HEIGHT};
 use rmk::ble::BleState;
-use rmk::event::{BleStateChangeEvent, ControllerEventTrait, EventSubscriber};
+use rmk::event::{BleStateChangeEvent, SubscribableEvent, EventSubscriber};
 
 // SH1107 I2C 地址
 const SH1107_ADDR: u8 = 0x3C;
@@ -97,6 +97,13 @@ impl<I2C: I2c> Sh1107<I2C> {
             self.i2c.write(SH1107_ADDR, &buf[..1 + chunk.len()]).await?;
         }
         Ok(())
+    }
+
+    /// 设置对比度 (亮度)
+    /// value: 0-255, 对应 SH1107 contrast 寄存器
+    pub async fn set_contrast(&mut self, value: u8) -> Result<(), I2C::Error> {
+        self.send_command(0x81).await?;
+        self.send_command(value).await
     }
 
     /// 清除缓冲区
@@ -313,7 +320,7 @@ where
         .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
         .draw(display);
     // 电池头 1x2
-    let _ = Rectangle::new(Point::new(x + 9, y + 2), Size::new(1, 2))
+    let _ = Rectangle::new(Point::new(x + 9, y + 2), Size::new(2, 4))
         .into_styled(PrimitiveStyle::with_fill(BinaryColor::On))
         .draw(display);
     // 电量填充 (最多7格宽)
@@ -523,10 +530,15 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
     // 获取状态发送器和接收器
     let menu_state_tx = MENU_STATE.sender();
     let battery_status_tx = BATTERY_STATUS.sender();
-    let mut mode_rx = CURRENT_MODE.receiver().unwrap();
+    let mode_tx = CURRENT_MODE.sender();
 
     // 初始状态
-    let mut current_mode = mode_rx.try_get().unwrap_or_default();
+    let mut current_mode = crate::mode::KeyboardMode::default();
+    mode_tx.send(current_mode);
+    let mut current_pad_index: u8 = 0;
+    let mut current_brightness: u8 = 80;
+    let mut current_ble_enabled: bool = true;
+    let mut current_user: u8 = 0;
     let mut battery_status = crate::battery::BatteryStatus::default();
 
     // BLE 连接状态：通过 RMK 事件系统订阅（替代有 bug 的 get_connection_state 轮询）
@@ -564,7 +576,12 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
     // 用于计算帧间隔
     let mut last_frame = Instant::now();
 
-    // 主循环
+    // 启动菜单控制器（并行运行）
+    let mut menu_ctrl = crate::menu::MenuController::new();
+    let menu_ctrl_future = menu_ctrl.run();
+
+    // 显示主循环
+    let display_future = async {
     loop {
         let now = Instant::now();
         let elapsed_ms = (now - last_frame).as_millis() as u16;
@@ -612,15 +629,6 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
                             wououi.send_input(wououi_input);
                         }
                     }
-                }
-            }
-        }
-
-        // 更新模式（从 Watch）
-        if mode_rx.try_changed().is_some() {
-            if let Some(new_mode) = mode_rx.try_get() {
-                if new_mode != current_mode {
-                    current_mode = new_mode;
                 }
             }
         }
@@ -679,6 +687,47 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
                 }
             }
 
+            // 检测 Pad 选择变化，切换 RMK Layer
+            let selected_pad = wououi.get_selected_pad();
+            if selected_pad != current_pad_index {
+                current_pad_index = selected_pad;
+                let mode = crate::mode::KeyboardMode::from_layer(selected_pad);
+                current_mode = mode;
+                rmk::set_default_layer(selected_pad);
+                // 广播模式变更
+                mode_tx.send(mode);
+                defmt::info!("Pad switched to {} (layer {})", mode.name(), selected_pad);
+            }
+
+            // 检测亮度变化，设置 SH1107 对比度
+            let brightness = wououi.get_brightness();
+            if brightness != current_brightness {
+                current_brightness = brightness;
+                // 映射 0-100 → 5-255（0% 保持微亮，不完全熄灭）
+                const MIN_CONTRAST: u16 = 5;
+                let contrast = (MIN_CONTRAST + brightness as u16 * (255 - MIN_CONTRAST) / 100) as u8;
+                if let Err(_) = display.set_contrast(contrast).await {
+                    defmt::error!("Failed to set contrast");
+                }
+                defmt::info!("Brightness: {}% (contrast={})", brightness, contrast);
+            }
+
+            // 检测 BLE 开关变化
+            let ble_enabled = wououi.get_ble_enabled();
+            if ble_enabled != current_ble_enabled {
+                current_ble_enabled = ble_enabled;
+                defmt::info!("BLE enabled: {}", ble_enabled);
+                // TODO: RMK 未暴露 BLE 启停的公共 API，待后续支持
+            }
+
+            // 检测 User 切换（BLE 多设备）
+            let selected_user = wououi.get_selected_user();
+            if selected_user != current_user {
+                current_user = selected_user;
+                rmk::switch_ble_profile(selected_user);
+                defmt::info!("User switched to User {} (profile {})", selected_user, selected_user);
+            }
+
             // 更新空闲计时器
             menu_idle_ticks += 1;
             if menu_idle_ticks > MENU_TIMEOUT_TICKS {
@@ -709,6 +758,8 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
             let prev = unsafe { PREV_ACTIVE };
             if new_active != prev {
                 unsafe { PREV_ACTIVE = new_active };
+                // 同步 RMK 菜单模式标志，控制按键/编码器拦截
+                crate::menu::set_rmk_menu_mode(new_active);
                 let state = MenuState {
                     active: new_active,
                     current_page: if new_active { PageId::MainMenu } else { PageId::Home },
@@ -729,4 +780,8 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
 
         Timer::after(frame_delay).await;
     }
+    }; // end display_future
+
+    // 并行运行显示和菜单控制器
+    rmk::embassy_futures::join::join(display_future, menu_ctrl_future).await;
 }

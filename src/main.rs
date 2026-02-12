@@ -1,8 +1,8 @@
 #![no_std]
 #![no_main]
 
-// k9-pad-E73 Firmware - 多模式键盘
-// 模式: MEDIA / EXCEL / CLAUDE
+// k9-pad-E73 Firmware - 多层键盘
+// 模式: Pad A / Pad B / Pad C (对应 RMK Layer 0/1/2)
 
 use rmk::macros::rmk_keyboard;
 
@@ -32,14 +32,33 @@ unsafe fn pre_init() {
 // RMK keyboard macro
 #[rmk_keyboard]
 mod keyboard {
-    use crate::menu::MenuController;
-    use rmk::controller::PollingController;
+    // Add TWI interrupt for display I2C (TWISPI0 is embassy-nrf's name for TWIM0/SPI0)
+    add_interrupt! {
+        TWISPI0 => ::embassy_nrf::twim::InterruptHandler<::embassy_nrf::peripherals::TWISPI0>;
+    }
 
-    /// 注册菜单控制器
-    /// 监听 KeyEvent，在菜单模式下将按键转换为菜单输入
-    /// 使用 poll 模式每 50ms 检测 SW1 长按
-    #[register_controller(poll)]
-    fn menu_controller() -> MenuController {
-        MenuController::new()
+    #[Overwritten(entry)]
+    async fn custom_entry() {
+        use ::rmk::input_device::Runnable;
+
+        // Initialize display I2C
+        static TWI_BUF: ::static_cell::StaticCell<[u8; 256]> = ::static_cell::StaticCell::new();
+        let twi_buf = TWI_BUF.init([0u8; 256]);
+        let twi_config = ::embassy_nrf::twim::Config::default();
+        let twi = ::embassy_nrf::twim::Twim::new(
+            p.TWISPI0, Irqs, p.P0_08, p.P1_09, twi_config, twi_buf
+        );
+
+        // Run all tasks: devices + keyboard + RMK + display
+        ::rmk::embassy_futures::join::join(
+            ::rmk::embassy_futures::join::join(
+                ::rmk::embassy_futures::join::join(
+                    ::rmk::run_all!(matrix, encoder_0),
+                    keyboard.run()
+                ),
+                ::rmk::run_rmk(&keymap, driver, &stack, &mut storage, rmk_config)
+            ),
+            crate::run_display(twi, p.P0_06)
+        ).await;
     }
 }

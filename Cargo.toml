@@ -10,7 +10,7 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-rmk = { git = "https://github.com/jenny92-tech/rmk", features = ["async_matrix", "nrf52840_ble", "display", "controller"] }
+rmk = { git = "https://github.com/jenny92-tech/rmk", features = ["async_matrix", "nrf52840_ble"] }
 embedded-graphics = "0.8"
 embedded-hal-async = "1.0"
 nrf-sdc = { git = "https://github.com/alexmoon/nrf-sdc", rev = "11d5c3c", features = [
