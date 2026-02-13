@@ -237,3 +237,26 @@ uint16_t WouoUI_PortGetBufferSize(void) {
 uint8_t WouoUI_PortIsOnHomePage(void) {
     return (p_cur_ui->current_page == p_cur_ui->home_page) ? 1 : 0;
 }
+
+// Configure animation parameters for target frame time
+// Call after PortInit to adapt blur timing for the actual FPS
+void WouoUI_PortConfigFrameTime(uint16_t frame_ms) {
+    if (frame_ms == 0) frame_ms = 20;
+
+    // FADE_ANI controls blur step interval. The blur timer accumulates frame_ms
+    // each frame and steps when timer > FADE_ANI. Total blur time for 4 steps:
+    //   4 * (floor(FADE_ANI/frame_ms) + 2) * frame_ms
+    //
+    // We target ~60ms per blur step (240ms total) to match the original 50 FPS feel.
+    // Note: page-in fade is skipped for non-window transitions (expansion = reveal).
+    //
+    // Formula: FADE_ANI = (ceil(60/frame_ms) - 2) * frame_ms
+    // At 20ms frame: (3-2)*20 = 20  (original value, 240ms total)
+    // At  8ms frame: (8-2)*8  = 48  (256ms total)
+    uint16_t target_frames_per_step = (60 + frame_ms - 1) / frame_ms; // ceil(60/frame_ms)
+    if (target_frames_per_step < 3) target_frames_per_step = 3; // minimum 1 acc + 1 check + 1 step
+    uint16_t fade_ani = (target_frames_per_step - 2) * frame_ms;
+    if (fade_ani == 0) fade_ani = 1;
+
+    p_cur_ui->upara->ani_param[FADE_ANI] = fade_ani;
+}

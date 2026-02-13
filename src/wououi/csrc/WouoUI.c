@@ -69,13 +69,13 @@ bool WouoUI_FuncDoNothingRetFalse(PageAddr page_addr){UNUSED_PARAMETER(page_addr
 // 全局UI参数集合对象(同时初始化)，这个UI的相关参数都在这个集合中定义
 UiPara g_default_ui_para = {
     .ani_param = {
-        [IND_ANI] = 150,  // 指示器动画速度
+        [IND_ANI] = 150,  // 指示器动画速度 (ms时间常数, 帧率无关)
         [TILE_ANI] = 100, // 磁贴动画速度
         [TAG_ANI] = 100,  // 标签动画速度
         [LIST_ANI] = 100, // 列表动画速度
         [WAVE_ANI] = 100, // 波形动画速度
         [WIN_ANI] = 100,  // 弹窗动画速度
-        [FADE_ANI] = 20,  // 页面渐变退出速度
+        [FADE_ANI] = 20,  // 页面渐变步进间隔 (会被 PortConfigFrameTime 自动覆盖)
     },
     .ufd_param = {
         [TILE_UFD] = false, // 磁贴图标从头展开开关
@@ -535,7 +535,12 @@ void WouoUI_Proc(uint16_t time){
                     p_all = (Page*)p_cur_ui->in_page; //渐隐时的指示器动画换成即将要进入页面的动画
                     PAGE_USE_METHOD(p_cur_ui->current_page, show);//由于clearbuff一直清空buff，所以需要重新绘制上一个页面用于渐隐
                     if(WouoUI_BlurProc(p_cur_ui->time)){ //渐隐函数调用，返回true时，渐隐完成
-                        WouoUI_BlurParaInit(0,p_cur_ui->upara->ani_param[FADE_ANI]); //渐显参数初始化
+                        // 跳过fade-in: 直接清除blur，让展开动画作为揭示效果
+                        // 避免blur离散步进(尤其1→0)在列表接近完成时产生整体亮度跳变
+                        p_cur_ui->ui_blur.blur_cur = 0;
+                        p_cur_ui->ui_blur.blur_tgt = 0;
+                        p_cur_ui->ui_blur.blur_end = true;
+                        p_cur_ui->ui_blur.timer = 0;
                         PAGE_USE_METHOD(p_cur_ui->in_page, in_para_init);//调用要进入页面的IN动画参数初始化
                         p_cur_ui->state = ui_page_in;
                     }
@@ -582,6 +587,23 @@ void WouoUI_JumpToPage(PageAddr self_page_addr, PageAddr terminate_page) {
                 p_cur_ui->state = ui_page_in;     // 弹窗页面在in渐隐中同时做in动画
             }
             else {
+                // 跳转到 ListPage 时预计算 indicator_w_temp，防止渐隐期间
+                // ListPageIndicatorCtrl 读到 stale/0 值导致指示器动画回弹
+                if (p_ter->page_type == type_list) {
+                    ListPage *lp = (ListPage *)terminate_page;
+                    if (lp->select_item < lp->item_num) {
+                        Option *sel = &lp->option_array[lp->select_item];
+                        int16_t txt_w = (int16_t)WouoUI_GetStrWidth(sel->text, LIST_TEXT_FONT);
+                        if (NULL != strchr(LIST_LINETAIL_CONF_PREFIX, sel->text[0])) {
+                            txt_w = MIN(txt_w, WOUOUI_BUFF_WIDTH - CHECK_BOX_R_S - CHECK_BOX_F_W - LIST_TEXT_L_S*2 - LIST_IND_VAL_S);
+                        } else if (NULL == strchr(LIST_LINETAIL_VAL_PREFIX, sel->text[0]) &&
+                                   NULL == strchr(LIST_LINETAIL_SPIN_PREFIX, sel->text[0]) &&
+                                   NULL == strchr(LIST_LINETAIL_TXT_PREFIX, sel->text[0])) {
+                            txt_w = MIN(txt_w, WOUOUI_BUFF_WIDTH - LIST_TEXT_R_S - LIST_TEXT_L_S*2);
+                        }
+                        p_cur_ui->lp_var.indicator_w_temp = LIST_TEXT_L_S * 2 + txt_w;
+                    }
+                }
                 WouoUI_BlurParaInit(4,p_cur_ui->upara->ani_param[FADE_ANI]); //渐隐参数初始化(不是弹窗的话上一个页面完全消失)
                 p_cur_ui->state = ui_page_out;     // 改变页面，启动渐隐
             }

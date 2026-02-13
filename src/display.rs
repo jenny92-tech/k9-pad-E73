@@ -3,7 +3,7 @@
 // 集成 WouoUI 菜单系统，支持：
 // - 首页（键盘状态显示）
 // - WouoUI 动画菜单（横向磁贴滚动）
-// - 动态帧率（菜单 30 FPS，首页 1 FPS）
+// - 动态帧率（菜单 ~125 FPS，首页 1 FPS）
 
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::peripherals::P0_06;
@@ -668,14 +668,15 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
     display.send_command(0xAF).await.ok();
     defmt::info!("Display ON");
 
-    // 初始化 WouoUI
+    // 初始化 WouoUI（传入帧间隔，自动适配 blur 时序）
+    const MENU_FRAME_MS: u16 = 8; // ~125 FPS
     let mut wououi = WouoUI::new();
-    wououi.init();
+    wououi.init(MENU_FRAME_MS);
 
     // 菜单状态跟踪
     let mut menu_active = false;
     let mut menu_idle_ticks: u16 = 0;
-    const MENU_TIMEOUT_TICKS: u16 = 120 * 30; // 30秒 @ 120Hz
+    const MENU_TIMEOUT_TICKS: u16 = (1000 / MENU_FRAME_MS) * 30; // 30秒
 
     // 数据通道显示缓存 + slot 轮播
     let mut dc_cache = DisplayDataCache::new();
@@ -1019,9 +1020,9 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
             }
         }
 
-        // 动态帧率：菜单模式 120 FPS，首页 1 FPS
+        // 动态帧率：菜单模式 ~125 FPS，首页 1 FPS
         let frame_delay = if menu_active {
-            Duration::from_millis(8) // 120 FPS
+            Duration::from_millis(MENU_FRAME_MS as u64) // ~125 FPS
         } else {
             Duration::from_millis(1000) // 1 FPS
         };

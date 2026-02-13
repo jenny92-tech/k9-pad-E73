@@ -314,6 +314,7 @@ void WouoUI_ListPageInParaInit(PageAddr page_addr)
     UNUSED_PARAMETER(page_addr);
     p_cur_ui->lp_var.optInt.pos_cur = 0;
     p_cur_ui->lp_var.optInt.pos_tgt = LIST_LINE_H;
+    p_cur_ui->lp_var.optInt.pos_err = 0;
     p_cur_ui->scrollBar.display = true;
     //step其实可以移到init中，因为这个值在整个状态机中基本是是不变的
     p_cur_ui->lp_var.opt_text_ss.slide_mode = p_cur_ui->upara->slidestrmode_param[LIST_TEXT_SSS];

@@ -49,6 +49,9 @@ extern "C" {
     /// Check if currently on the home page
     fn WouoUI_PortIsOnHomePage() -> u8;
 
+    /// Configure animation timing for target frame interval
+    fn WouoUI_PortConfigFrameTime(frame_ms: u16);
+
     /// Reset WouoUI to clean entry state
     fn WouoUI_PortResetForEntry();
 
@@ -95,13 +98,18 @@ impl WouoUI {
     }
 
     /// Initialize the WouoUI system (call once at startup)
-    pub fn init(&mut self) {
+    /// `frame_ms` is the target frame interval in milliseconds, used to
+    /// auto-adjust blur timing for consistent page transitions.
+    pub fn init(&mut self, frame_ms: u16) {
         if !self.initialized {
             // SAFETY: WouoUI_PortInit is a C FFI function that initializes internal
             // state. The `initialized` flag ensures this is called at most once.
-            unsafe { WouoUI_PortInit() };
+            unsafe {
+                WouoUI_PortInit();
+                WouoUI_PortConfigFrameTime(frame_ms);
+            };
             self.initialized = true;
-            defmt::info!("WouoUI: Initialized");
+            defmt::info!("WouoUI: Initialized (frame_ms={})", frame_ms);
         }
     }
 

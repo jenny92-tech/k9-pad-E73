@@ -57,6 +57,11 @@ uint16_t WouoUI_PortGetBufferSize(void);
 // Check if currently on the home page
 uint8_t WouoUI_PortIsOnHomePage(void);
 
+// Configure animation timing for target frame interval (ms)
+// Automatically adjusts FADE_ANI to maintain consistent blur coverage
+// across different frame rates. Call once after PortInit.
+void WouoUI_PortConfigFrameTime(uint16_t frame_ms);
+
 // K9-Pad specific: Get selected pad index (0=Pad A, 1=Pad B, 2=Pad C)
 uint8_t WouoUI_K9Pad_GetSelectedPad(void);
 
