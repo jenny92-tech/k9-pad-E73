@@ -5,7 +5,7 @@
  *   Pad A / Pad B / Pad C / User / Settings / About
  *
  * Sub-pages:
- *   Pad A/B/C: "Enable" action (activates that pad/layer)
+ *   Pad A/B/C: "Enable" action + Data Ch / Volume / Subs / Time checkboxes
  *   User: User A/B/C radio (BLE multi-device) + Clear Bond
  *   Settings: BLE toggle + Brightness slider
  *   About: firmware info
@@ -27,9 +27,15 @@ static ValWin brightness_win;
 //--------当前选中的 Pad (0=A, 1=B, 2=C)
 static uint8_t g_selected_pad = 0;
 
+//--------菜单退出请求标志 (由回调设置，Rust 侧轮询)
+static uint8_t g_exit_requested = 0;
+
+//--------Data channel 主开关 per pad (0=disabled, 1=enabled)
+static uint8_t g_pad_dc_enabled[3] = {0, 0, 0};
+
 //--------页面选项数量
 #define MAIN_PAGE_NUM       6
-#define PAD_PAGE_NUM        2
+#define PAD_PAGE_NUM        6
 #define USER_PAGE_NUM       5
 #define SETTINGS_PAGE_NUM   3
 #define ABOUT_PAGE_NUM      4
@@ -118,19 +124,31 @@ static Icon main_icon_array[MAIN_PAGE_NUM] = {
 //--------Pad A 子页面选项
 static Option pad_a_option_array[PAD_PAGE_NUM] = {
     {.text = (char *)"- Pad A"},
-    {.text = (char *)"- Enable"}
+    {.text = (char *)"@ Enable",  .val = 1},
+    {.text = (char *)"@ Data Ch", .val = 0},
+    {.text = (char *)"@ Volume",  .val = 0},
+    {.text = (char *)"@ Subs",    .val = 0},
+    {.text = (char *)"@ Time",    .val = 0}
 };
 
 //--------Pad B 子页面选项
 static Option pad_b_option_array[PAD_PAGE_NUM] = {
     {.text = (char *)"- Pad B"},
-    {.text = (char *)"- Enable"}
+    {.text = (char *)"@ Enable",  .val = 1},
+    {.text = (char *)"@ Data Ch", .val = 0},
+    {.text = (char *)"@ Volume",  .val = 0},
+    {.text = (char *)"@ Subs",    .val = 0},
+    {.text = (char *)"@ Time",    .val = 0}
 };
 
 //--------Pad C 子页面选项
 static Option pad_c_option_array[PAD_PAGE_NUM] = {
     {.text = (char *)"- Pad C"},
-    {.text = (char *)"- Enable"}
+    {.text = (char *)"@ Enable",  .val = 1},
+    {.text = (char *)"@ Data Ch", .val = 0},
+    {.text = (char *)"@ Volume",  .val = 0},
+    {.text = (char *)"@ Subs",    .val = 0},
+    {.text = (char *)"@ Time",    .val = 0}
 };
 
 //--------User 页面选项 (BLE 多设备)
@@ -178,25 +196,34 @@ static bool MainPage_Callback(const Page *cur_page, InputMsg msg) {
 }
 
 // Pad 子页面回调（3 个 Pad 页面共用）
+// 点击 Enable 后设置 Pad 并请求退出菜单
+// 点击 Data Ch/Volume/Subs/Time 后同步 g_pad_dc_enabled
 static bool PadPage_Callback(const Page *cur_page, InputMsg msg) {
     if (msg != msg_click) return false;
 
     Option* opt = WouoUI_ListTitlePageGetSelectOpt(cur_page);
-    if (opt == NULL || opt->order != 1) return false;
+    if (opt == NULL) return false;
 
     // 根据页面地址确定是哪个 Pad
-    if ((PageAddr)cur_page == (PageAddr)&pad_a_page) {
-        g_selected_pad = 0;
-        WouoUI_MsgWinPageSetContent(&msg_win, (char*)"Pad A Enabled!");
-    } else if ((PageAddr)cur_page == (PageAddr)&pad_b_page) {
-        g_selected_pad = 1;
-        WouoUI_MsgWinPageSetContent(&msg_win, (char*)"Pad B Enabled!");
+    uint8_t pad_idx = 0;
+    if ((PageAddr)cur_page == (PageAddr)&pad_b_page) {
+        pad_idx = 1;
     } else if ((PageAddr)cur_page == (PageAddr)&pad_c_page) {
-        g_selected_pad = 2;
-        WouoUI_MsgWinPageSetContent(&msg_win, (char*)"Pad C Enabled!");
+        pad_idx = 2;
     }
 
-    WouoUI_JumpToPage((PageAddr)cur_page, &msg_win);
+    if (opt->order == 1) {
+        // "Enable" button: select this pad and request exit
+        g_selected_pad = pad_idx;
+        g_exit_requested = 1;
+    } else if (opt->order >= 2 && opt->order <= 5) {
+        // Checkbox items (Data Ch, Volume, Subs, Time)
+        // val is already auto-toggled by WouoUI auto_deal_with_msg
+        // Sync the master data channel enable from the "Data Ch" checkbox (order 2)
+        const ListPage *lp = (const ListPage *)cur_page;
+        g_pad_dc_enabled[pad_idx] = (lp->option_array[2].val != 0) ? 1 : 0;
+    }
+
     return false;
 }
 
@@ -294,4 +321,41 @@ uint8_t WouoUI_K9Pad_GetSelectedUser(void) {
         }
     }
     return 0;
+}
+
+// Check if menu exit was requested (by pad selection etc.)
+uint8_t WouoUI_K9Pad_GetExitRequested(void) {
+    return g_exit_requested;
+}
+
+// Clear exit request flag
+void WouoUI_K9Pad_ClearExitRequested(void) {
+    g_exit_requested = 0;
+}
+
+// Check if data channel is enabled for a pad (master "Data Ch" checkbox)
+uint8_t WouoUI_K9Pad_IsDataChannelEnabled(uint8_t pad_index) {
+    if (pad_index > 2) return 0;
+    return g_pad_dc_enabled[pad_index];
+}
+
+// Get bitmask of enabled data channel functions for a pad
+// Bit 0: reserved (master enable is separate)
+// Bit 1: Volume display
+// Bit 2: Subscriber count
+// Bit 3: Time display
+uint16_t WouoUI_K9Pad_GetEnabledFunctions(uint8_t pad_index) {
+    if (pad_index > 2) return 0;
+    Option *opts;
+    switch (pad_index) {
+        case 0: opts = pad_a_option_array; break;
+        case 1: opts = pad_b_option_array; break;
+        case 2: opts = pad_c_option_array; break;
+        default: return 0;
+    }
+    uint16_t mask = 0;
+    if (opts[3].val) mask |= (1 << 1);  // Volume  -> bit 1
+    if (opts[4].val) mask |= (1 << 2);  // Subs    -> bit 2
+    if (opts[5].val) mask |= (1 << 3);  // Time    -> bit 3
+    return mask;
 }

@@ -9,12 +9,14 @@ use rmk::macros::rmk_keyboard;
 use panic_probe as _;
 
 mod battery;
+mod data_channel;
 mod mode;
 mod display;
 mod menu;
 mod wououi;
 
 pub use battery::*;
+pub use data_channel::*;
 pub use mode::*;
 pub use display::run_display;
 pub use menu::*;
@@ -49,7 +51,7 @@ mod keyboard {
             p.TWISPI0, Irqs, p.P0_08, p.P1_09, twi_config, twi_buf
         );
 
-        // Run all tasks: devices + keyboard + RMK + display
+        // Run all tasks: devices + keyboard + RMK + display + data channel
         ::rmk::embassy_futures::join::join(
             ::rmk::embassy_futures::join::join(
                 ::rmk::embassy_futures::join::join(
@@ -58,7 +60,10 @@ mod keyboard {
                 ),
                 ::rmk::run_rmk(&keymap, driver, &stack, &mut storage, rmk_config)
             ),
-            crate::run_display(twi, p.P0_06)
+            ::rmk::embassy_futures::join::join(
+                crate::run_display(twi, p.P0_06),
+                crate::data_channel::run_data_channel()
+            )
         ).await;
     }
 }

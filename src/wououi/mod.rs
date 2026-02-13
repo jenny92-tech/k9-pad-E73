@@ -66,6 +66,18 @@ extern "C" {
 
     /// Get selected user index (0=User A, 1=User B, 2=User C)
     fn WouoUI_K9Pad_GetSelectedUser() -> u8;
+
+    /// Check if menu exit was requested
+    fn WouoUI_K9Pad_GetExitRequested() -> u8;
+
+    /// Clear exit request flag
+    fn WouoUI_K9Pad_ClearExitRequested();
+
+    /// Check if data channel is enabled for a pad (master "Data Ch" checkbox)
+    fn WouoUI_K9Pad_IsDataChannelEnabled(pad_index: u8) -> u8;
+
+    /// Get bitmask of enabled data channel functions for a pad
+    fn WouoUI_K9Pad_GetEnabledFunctions(pad_index: u8) -> u16;
 }
 
 /// Safe Rust interface to WouoUI
@@ -206,6 +218,42 @@ impl WouoUI {
         // SAFETY: WouoUI_K9Pad_GetSelectedUser iterates user_option_array
         // to find the selected radio button. Pure read, no side effects.
         unsafe { WouoUI_K9Pad_GetSelectedUser() }
+    }
+
+    /// Check and consume exit request from C callbacks
+    pub fn take_exit_request(&mut self) -> bool {
+        if !self.initialized {
+            return false;
+        }
+        unsafe {
+            if WouoUI_K9Pad_GetExitRequested() != 0 {
+                WouoUI_K9Pad_ClearExitRequested();
+                true
+            } else {
+                false
+            }
+        }
+    }
+
+    /// Check if data channel is enabled for a pad (master "Data Ch" checkbox)
+    pub fn is_data_channel_enabled(&self, pad: u8) -> bool {
+        if !self.initialized {
+            return false;
+        }
+        // SAFETY: WouoUI_K9Pad_IsDataChannelEnabled reads g_pad_dc_enabled[pad].
+        // Pure read, no side effects. The `initialized` check guarantees init was called.
+        unsafe { WouoUI_K9Pad_IsDataChannelEnabled(pad) != 0 }
+    }
+
+    /// Get bitmask of enabled data channel functions for a pad
+    /// Bit 1: Volume, Bit 2: Subs, Bit 3: Time
+    pub fn get_enabled_functions(&self, pad: u8) -> u16 {
+        if !self.initialized {
+            return 0;
+        }
+        // SAFETY: WouoUI_K9Pad_GetEnabledFunctions reads option .val fields
+        // from the C menu arrays. Pure read, no side effects.
+        unsafe { WouoUI_K9Pad_GetEnabledFunctions(pad) }
     }
 
     /// Get a reference to the screen buffer

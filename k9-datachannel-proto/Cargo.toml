@@ -1,0 +1,13 @@
+[package]
+name = "k9-datachannel-proto"
+version = "0.1.0"
+edition = "2021"
+description = "Binary protocol definitions for K9-Pad data channel (no_std compatible)"
+
+[features]
+default = []
+std = []
+
+[dependencies]
+
+[dev-dependencies]

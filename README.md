@@ -35,6 +35,14 @@ cargo build --release
 
 > 生成 UF2 / 烧录（如你用 nice!nano bootloader）可以按 RMK 文档里 `cargo make uf2 --release` 走。
 
+## 数据通道 (Data Channel)
+
+K9-Pad 支持通过 BLE GATT 或 USB CDC-ACM 与主机电脑通信，将主机数据（音量、订阅数、时间等）推送到键盘 OLED 显示。
+
+- **协议文档**: [docs/DATA_CHANNEL_PROTOCOL.md](docs/DATA_CHANNEL_PROTOCOL.md)
+- **协议 crate**: `k9-datachannel-proto/` — 共享的二进制协议定义，支持 `std` 和 `no_std`
+- **BLE 服务 UUID**: `k9dc0001-7374-7265-616d-6b3970616400`
+
 ## 配置入口
 - `keyboard.toml`：矩阵引脚、层数、keymap
 - `src/main.rs`：RMK 宏入口（模板方式）

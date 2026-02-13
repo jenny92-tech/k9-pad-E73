@@ -8,5 +8,6 @@
 #[cfg(not(test))]
 extern crate core;
 
+pub mod data_channel;
 pub mod mode;
 pub mod menu;

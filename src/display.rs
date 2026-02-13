@@ -19,6 +19,7 @@ use embedded_graphics::{
 };
 use embedded_hal_async::i2c::I2c;
 
+use crate::data_channel::{DisplayDataCache, DisplaySlotData, DISPLAY_DATA};
 use crate::menu::{MenuInput, MENU_INPUT, MENU_STATE, MenuState, PageId};
 use crate::mode::CURRENT_MODE;
 use crate::battery::BATTERY_STATUS;
@@ -396,6 +397,160 @@ where
         .draw(display);
 }
 
+/// 绘制数据通道布局（首页模式 2：浮动头部 + 内容区）
+///
+/// ```text
+/// ┌────────────────────────────────────┐
+/// │ Kpad A        BLE ● BAT 85%       │  ← 顶部状态栏
+/// │ ──────────────────────────────────  │
+/// │                                    │
+/// │   Volume: 75%  ████████░░          │  ← 内容区：当前 slot 数据
+/// │                                    │
+/// └────────────────────────────────────┘
+/// ```
+fn draw_data_channel_ui<D>(
+    display: &mut D,
+    mode: &str,
+    battery_percent: u8,
+    ble_connected: bool,
+    slot_data: Option<&DisplaySlotData>,
+)
+where
+    D: DrawTarget<Color = BinaryColor>,
+{
+    let _ = display.clear(BinaryColor::Off);
+
+    // 顶部状态栏
+    let small_style = MonoTextStyle::new(
+        &embedded_graphics::mono_font::ascii::FONT_6X10,
+        BinaryColor::On,
+    );
+
+    // 左上: Pad 名称
+    let _ = Text::new(mode, Point::new(2, 9), small_style).draw(display);
+
+    // 右上: BLE + 电池
+    draw_ble_icon(display, 98, 1, ble_connected);
+    draw_battery_icon(display, 112, 2, battery_percent);
+
+    // 分隔线
+    let line_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
+    let _ = Line::new(Point::new(0, 13), Point::new(127, 13))
+        .into_styled(line_style)
+        .draw(display);
+
+    // 内容区
+    let content_style = MonoTextStyle::new(
+        &embedded_graphics::mono_font::ascii::FONT_6X10,
+        BinaryColor::On,
+    );
+
+    match slot_data {
+        Some(DisplaySlotData::Text(text)) => {
+            let _ = Text::new(text.as_str(), Point::new(4, 38), content_style).draw(display);
+        }
+        Some(DisplaySlotData::Numeric(value)) => {
+            let mut buf = [0u8; 16];
+            let s = format_i32(*value, &mut buf);
+            let _ = Text::new(s, Point::new(4, 38), content_style).draw(display);
+        }
+        Some(DisplaySlotData::Progress(pct)) => {
+            // 百分比文字
+            let mut buf = [0u8; 8];
+            let s = format_progress(*pct, &mut buf);
+            let _ = Text::new(s, Point::new(4, 30), content_style).draw(display);
+
+            // 进度条 (100x8 像素)
+            let bar_x = 4i32;
+            let bar_y = 36i32;
+            let bar_w = 100u32;
+            let bar_h = 8u32;
+
+            // 外框
+            let _ = Rectangle::new(
+                Point::new(bar_x, bar_y),
+                Size::new(bar_w, bar_h),
+            )
+            .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
+            .draw(display);
+
+            // 填充
+            let fill_w = (*pct as u32 * (bar_w - 2)) / 100;
+            if fill_w > 0 {
+                let _ = Rectangle::new(
+                    Point::new(bar_x + 1, bar_y + 1),
+                    Size::new(fill_w, bar_h - 2),
+                )
+                .into_styled(PrimitiveStyle::with_fill(BinaryColor::On))
+                .draw(display);
+            }
+        }
+        Some(DisplaySlotData::Icon(_icon_id)) => {
+            let _ = Text::new("[icon]", Point::new(4, 38), content_style).draw(display);
+        }
+        None => {
+            let _ = Text::new("Waiting...", Point::new(4, 38), content_style).draw(display);
+        }
+    }
+}
+
+/// 格式化 i32 到固定缓冲区，返回字符串切片
+fn format_i32(value: i32, buf: &mut [u8; 16]) -> &str {
+    let mut pos = buf.len();
+    let negative = value < 0;
+    let mut v = if negative {
+        (value as i64).unsigned_abs()
+    } else {
+        value as u64
+    };
+
+    if v == 0 {
+        pos -= 1;
+        buf[pos] = b'0';
+    } else {
+        while v > 0 {
+            pos -= 1;
+            buf[pos] = b'0' + (v % 10) as u8;
+            v /= 10;
+        }
+    }
+
+    if negative {
+        pos -= 1;
+        buf[pos] = b'-';
+    }
+
+    core::str::from_utf8(&buf[pos..]).unwrap_or("?")
+}
+
+/// 格式化进度百分比
+fn format_progress(pct: u8, buf: &mut [u8; 8]) -> &str {
+    let mut pos = 0;
+
+    // 数字部分
+    if pct >= 100 {
+        buf[pos] = b'1';
+        pos += 1;
+        buf[pos] = b'0';
+        pos += 1;
+        buf[pos] = b'0';
+        pos += 1;
+    } else if pct >= 10 {
+        buf[pos] = b'0' + pct / 10;
+        pos += 1;
+        buf[pos] = b'0' + pct % 10;
+        pos += 1;
+    } else {
+        buf[pos] = b'0' + pct;
+        pos += 1;
+    }
+
+    buf[pos] = b'%';
+    pos += 1;
+
+    core::str::from_utf8(&buf[..pos]).unwrap_or("?%")
+}
+
 /// 将菜单输入转换为 WouoUI 输入
 fn menu_input_to_wououi(input: MenuInput) -> Option<WououiInput> {
     match input {
@@ -521,6 +676,12 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
     let mut menu_active = false;
     let mut menu_idle_ticks: u16 = 0;
     const MENU_TIMEOUT_TICKS: u16 = 120 * 30; // 30秒 @ 120Hz
+
+    // 数据通道显示缓存 + slot 轮播
+    let mut dc_cache = DisplayDataCache::new();
+    let mut dc_current_slot: u8 = 0;
+    let mut dc_rotation_timer = Instant::now();
+    const DC_ROTATION_INTERVAL: Duration = Duration::from_secs(4);
 
     // 初始化充电检测引脚 (P0.07, 上拉输入)
     // SAFETY: P0.07 未被其他任务使用，见 init_charge_detect_pin 文档
@@ -687,6 +848,13 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
                 }
             }
 
+            // C 回调请求退出菜单（如 Pad 选择后）
+            if wououi.take_exit_request() {
+                menu_active = false;
+                wououi.exit_menu();
+                defmt::info!("WouoUI: Exit requested by callback");
+            }
+
             // 检测 Pad 选择变化，切换 RMK Layer
             let selected_pad = wououi.get_selected_pad();
             if selected_pad != current_pad_index {
@@ -728,6 +896,36 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
                 defmt::info!("User switched to User {} (profile {})", selected_user, selected_user);
             }
 
+            // 检测数据通道配置变化，通知主机
+            {
+                let dc_enabled = wououi.is_data_channel_enabled(current_pad_index);
+                let functions = if dc_enabled {
+                    wououi.get_enabled_functions(current_pad_index)
+                } else {
+                    0
+                };
+                let new_config = k9_datachannel_proto::PadConfig {
+                    active_pad: current_pad_index,
+                    enabled_functions: functions,
+                };
+                static mut PREV_DC_CONFIG: k9_datachannel_proto::PadConfig =
+                    k9_datachannel_proto::PadConfig {
+                        active_pad: 0xFF,
+                        enabled_functions: 0xFFFF,
+                    };
+                // SAFETY: 单线程 display task 内部使用
+                let prev = unsafe { PREV_DC_CONFIG };
+                if new_config != prev {
+                    unsafe { PREV_DC_CONFIG = new_config };
+                    crate::data_channel::DATA_CHANNEL_CONFIG.sender().send(new_config);
+                    defmt::info!(
+                        "DC config: pad={} functions=0x{:04x}",
+                        new_config.active_pad,
+                        new_config.enabled_functions
+                    );
+                }
+            }
+
             // 更新空闲计时器
             menu_idle_ticks += 1;
             if menu_idle_ticks > MENU_TIMEOUT_TICKS {
@@ -736,13 +934,59 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
                 defmt::info!("WouoUI: Menu timeout, returning to home");
             }
         } else {
-            // 首页模式：使用 embedded-graphics 渲染
-            draw_keyboard_ui(
-                &mut display,
-                current_mode.name(),
-                battery_status.percentage,
-                ble_connected,
-            );
+            // 非阻塞消费显示数据命令
+            while let Ok(cmd) = DISPLAY_DATA.try_receive() {
+                dc_cache.apply(&cmd);
+            }
+
+            // 检查当前 Pad 是否启用了数据通道
+            let dc_enabled = wououi.is_data_channel_enabled(current_pad_index);
+            let active_slots = dc_cache.active_count();
+
+            if dc_enabled && active_slots > 0 {
+                // 模式 2：数据通道布局（浮动头部 + 内容区）
+                // Slot 轮播：多个 slot 时每 4 秒切换
+                if active_slots > 1
+                    && now.duration_since(dc_rotation_timer) >= DC_ROTATION_INTERVAL
+                {
+                    dc_rotation_timer = now;
+                    // 找下一个有数据的 slot
+                    for _ in 0..8 {
+                        dc_current_slot = (dc_current_slot + 1) % 8;
+                        if dc_cache.slots[dc_current_slot as usize].is_some() {
+                            break;
+                        }
+                    }
+                }
+
+                // 确保当前 slot 有数据（可能被 clear 了）
+                if dc_cache.slots[dc_current_slot as usize].is_none() {
+                    // 找第一个有数据的 slot
+                    for i in 0..8u8 {
+                        if dc_cache.slots[i as usize].is_some() {
+                            dc_current_slot = i;
+                            break;
+                        }
+                    }
+                }
+
+                let slot_data = dc_cache.slots[dc_current_slot as usize].as_ref();
+                draw_data_channel_ui(
+                    &mut display,
+                    current_mode.name(),
+                    battery_status.percentage,
+                    ble_connected,
+                    slot_data,
+                );
+            } else {
+                // 模式 1：居中显示（无数据通道功能启用）
+                draw_keyboard_ui(
+                    &mut display,
+                    current_mode.name(),
+                    battery_status.percentage,
+                    ble_connected,
+                );
+            }
         }
 
         // 刷新到屏幕

@@ -1,16 +1,17 @@
 [package]
 name = "k9-pad-e73"
 version = "0.2.0"
-authors = ["Haobo Gu <haobogu@outlook.com>"]
+authors = ["jenny92 <haobogu@outlook.com>"]
 description = "Keyboard firmware written in Rust"
-homepage = "https://github.com/haobogu/rmk"
-repository = "https://github.com/haobogu/rmk"
+homepage = "https://github.com/jenny92-tech/rmk"
+repository = "https://github.com/jenny92-tech/rmk"
 readme = "README.md"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-rmk = { git = "https://github.com/jenny92-tech/rmk", features = ["async_matrix", "nrf52840_ble"] }
+rmk = { git = "https://github.com/jenny92-tech/rmk", rev = "aa8fc60b", features = ["async_matrix", "nrf52840_ble", "data_channel"] }
+k9-datachannel-proto = { path = "k9-datachannel-proto" }
 embedded-graphics = "0.8"
 embedded-hal-async = "1.0"
 nrf-sdc = { git = "https://github.com/alexmoon/nrf-sdc", rev = "11d5c3c", features = [
