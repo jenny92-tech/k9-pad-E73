@@ -320,8 +320,8 @@ where
     let _ = Rectangle::new(Point::new(x, y), Size::new(9, 6))
         .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
         .draw(display);
-    // 电池头 1x2
-    let _ = Rectangle::new(Point::new(x + 9, y + 2), Size::new(2, 4))
+    // 电池头 2x4 (垂直居中于 6px 高的电池体)
+    let _ = Rectangle::new(Point::new(x + 9, y + 1), Size::new(2, 4))
         .into_styled(PrimitiveStyle::with_fill(BinaryColor::On))
         .draw(display);
     // 电量填充 (最多7格宽)

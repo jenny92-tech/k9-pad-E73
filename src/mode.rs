@@ -27,9 +27,9 @@ impl KeyboardMode {
 
     pub fn name(&self) -> &'static str {
         match self {
-            KeyboardMode::PadA => "Pad A",
-            KeyboardMode::PadB => "Pad B",
-            KeyboardMode::PadC => "Pad C",
+            KeyboardMode::PadA => "Layer 0",
+            KeyboardMode::PadB => "Layer 1",
+            KeyboardMode::PadC => "Layer 2",
         }
     }
 
@@ -92,9 +92,9 @@ mod tests {
 
     #[test]
     fn test_keyboard_mode_name() {
-        assert_eq!(KeyboardMode::PadA.name(), "Pad A");
-        assert_eq!(KeyboardMode::PadB.name(), "Pad B");
-        assert_eq!(KeyboardMode::PadC.name(), "Pad C");
+        assert_eq!(KeyboardMode::PadA.name(), "Layer 0");
+        assert_eq!(KeyboardMode::PadB.name(), "Layer 1");
+        assert_eq!(KeyboardMode::PadC.name(), "Layer 2");
     }
 
     #[test]

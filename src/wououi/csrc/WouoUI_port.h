@@ -62,7 +62,7 @@ uint8_t WouoUI_PortIsOnHomePage(void);
 // across different frame rates. Call once after PortInit.
 void WouoUI_PortConfigFrameTime(uint16_t frame_ms);
 
-// K9-Pad specific: Get selected pad index (0=Pad A, 1=Pad B, 2=Pad C)
+// K9-Pad specific: Get selected layer index (0=Layer 0, 1=Layer 1, 2=Layer 2)
 uint8_t WouoUI_K9Pad_GetSelectedPad(void);
 
 // K9-Pad specific: Set selected pad (for syncing menu state)

@@ -55,7 +55,7 @@ extern "C" {
     /// Reset WouoUI to clean entry state
     fn WouoUI_PortResetForEntry();
 
-    /// Get selected pad index (0=Pad A, 1=Pad B, 2=Pad C)
+    /// Get selected layer index (0=Layer 0, 1=Layer 1, 2=Layer 2)
     fn WouoUI_K9Pad_GetSelectedPad() -> u8;
 
     /// Set selected pad (for syncing menu state from external source)
@@ -181,7 +181,7 @@ impl WouoUI {
         unsafe { WouoUI_PortIsOnHomePage() != 0 }
     }
 
-    /// Get the currently selected pad index (0=Pad A, 1=Pad B, 2=Pad C)
+    /// Get the currently selected layer index (0=Layer 0, 1=Layer 1, 2=Layer 2)
     pub fn get_selected_pad(&self) -> u8 {
         if !self.initialized {
             return 0;
