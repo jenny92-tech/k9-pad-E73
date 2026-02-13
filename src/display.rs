@@ -698,6 +698,8 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
     mode_tx.send(current_mode);
     let mut current_pad_index: u8 = 0;
     let mut current_brightness: u8 = 80;
+    let mut last_contrast_write = Instant::now();
+    const CONTRAST_MIN_INTERVAL: Duration = Duration::from_millis(100);
     let mut current_ble_enabled: bool = true;
     let mut current_user: u8 = 0;
     let mut battery_status = crate::battery::BatteryStatus::default();
@@ -867,17 +869,19 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
                 defmt::info!("Pad switched to {} (layer {})", mode.name(), selected_pad);
             }
 
-            // 检测亮度变化，设置 SH1107 对比度
-            let brightness = wououi.get_brightness();
+            // 实时亮度预览：读取 ValWin 滑块实时值，限速 100ms
+            let brightness = wououi.get_live_brightness();
             if brightness != current_brightness {
-                current_brightness = brightness;
-                // 映射 0-100 → 5-255（0% 保持微亮，不完全熄灭）
-                const MIN_CONTRAST: u16 = 5;
-                let contrast = (MIN_CONTRAST + brightness as u16 * (255 - MIN_CONTRAST) / 100) as u8;
-                if let Err(_) = display.set_contrast(contrast).await {
-                    defmt::error!("Failed to set contrast");
+                if now.duration_since(last_contrast_write) >= CONTRAST_MIN_INTERVAL {
+                    current_brightness = brightness;
+                    last_contrast_write = now;
+                    const MIN_CONTRAST: u16 = 5;
+                    let contrast = (MIN_CONTRAST + brightness as u16 * (255 - MIN_CONTRAST) / 100) as u8;
+                    if let Err(_) = display.set_contrast(contrast).await {
+                        defmt::error!("Failed to set contrast");
+                    }
+                    defmt::info!("Brightness: {}% (contrast={})", brightness, contrast);
                 }
-                defmt::info!("Brightness: {}% (contrast={})", brightness, contrast);
             }
 
             // 检测 BLE 开关变化

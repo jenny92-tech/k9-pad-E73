@@ -61,6 +61,9 @@ extern "C" {
     /// Get brightness value (0-100)
     fn WouoUI_K9Pad_GetBrightness() -> u8;
 
+    /// Get live brightness value (0-100) — real-time slider value when ValWin is active
+    fn WouoUI_K9Pad_GetLiveBrightness() -> u8;
+
     /// Get BLE enabled state (1=on, 0=off)
     fn WouoUI_K9Pad_GetBleEnabled() -> u8;
 
@@ -198,6 +201,16 @@ impl WouoUI {
         // SAFETY: WouoUI_K9Pad_GetBrightness reads settings_option_array[2].val
         // from the C menu. Pure read, no side effects.
         unsafe { WouoUI_K9Pad_GetBrightness() }
+    }
+
+    /// Get live brightness value (0-100)
+    /// Returns the real-time slider value when the brightness ValWin is active,
+    /// otherwise returns the confirmed value.
+    pub fn get_live_brightness(&self) -> u8 {
+        if !self.initialized {
+            return 80;
+        }
+        unsafe { WouoUI_K9Pad_GetLiveBrightness() }
     }
 
     /// Get BLE enabled state

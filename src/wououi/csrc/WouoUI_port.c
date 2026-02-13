@@ -58,13 +58,13 @@ void* wououi_memcpy(void* dst, const void* src, size_t n) {
     return dst;
 }
 
-// Simple integer to string conversion
+// Simple integer to string conversion (only supports "%d")
 int wououi_sprintf(char* str, const char* format, ...) {
-    // Only support "%d" format for ui_itoa
     if (format[0] == '%' && format[1] == 'd' && format[2] == '\0') {
-        // Get the integer argument (simplified varargs)
-        int* args = (int*)((char*)&format + sizeof(format));
-        int num = *args;
+        __builtin_va_list ap;
+        __builtin_va_start(ap, format);
+        int num = __builtin_va_arg(ap, int);
+        __builtin_va_end(ap);
 
         char* p = str;
         int negative = 0;
@@ -82,7 +82,6 @@ int wououi_sprintf(char* str, const char* format, ...) {
             num /= 10;
         } while (num > 0);
 
-        // Add negative sign
         if (negative) {
             *p++ = '-';
         }

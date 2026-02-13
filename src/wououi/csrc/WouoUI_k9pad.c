@@ -30,12 +30,10 @@ static uint8_t g_selected_pad = 0;
 //--------菜单退出请求标志 (由回调设置，Rust 侧轮询)
 static uint8_t g_exit_requested = 0;
 
-//--------Data channel 主开关 per pad (0=disabled, 1=enabled)
-static uint8_t g_pad_dc_enabled[3] = {0, 0, 0};
 
 //--------页面选项数量
 #define MAIN_PAGE_NUM       6
-#define PAD_PAGE_NUM        6
+#define PAD_PAGE_NUM        5
 #define USER_PAGE_NUM       5
 #define SETTINGS_PAGE_NUM   3
 #define ABOUT_PAGE_NUM      4
@@ -124,8 +122,7 @@ static Icon main_icon_array[MAIN_PAGE_NUM] = {
 //--------Pad A 子页面选项
 static Option pad_a_option_array[PAD_PAGE_NUM] = {
     {.text = (char *)"- Pad A"},
-    {.text = (char *)"@ Enable",  .val = 1},
-    {.text = (char *)"@ Data Ch", .val = 0},
+    {.text = (char *)"! Enable"},
     {.text = (char *)"@ Volume",  .val = 0},
     {.text = (char *)"@ Subs",    .val = 0},
     {.text = (char *)"@ Time",    .val = 0}
@@ -134,8 +131,7 @@ static Option pad_a_option_array[PAD_PAGE_NUM] = {
 //--------Pad B 子页面选项
 static Option pad_b_option_array[PAD_PAGE_NUM] = {
     {.text = (char *)"- Pad B"},
-    {.text = (char *)"@ Enable",  .val = 1},
-    {.text = (char *)"@ Data Ch", .val = 0},
+    {.text = (char *)"! Enable"},
     {.text = (char *)"@ Volume",  .val = 0},
     {.text = (char *)"@ Subs",    .val = 0},
     {.text = (char *)"@ Time",    .val = 0}
@@ -144,8 +140,7 @@ static Option pad_b_option_array[PAD_PAGE_NUM] = {
 //--------Pad C 子页面选项
 static Option pad_c_option_array[PAD_PAGE_NUM] = {
     {.text = (char *)"- Pad C"},
-    {.text = (char *)"@ Enable",  .val = 1},
-    {.text = (char *)"@ Data Ch", .val = 0},
+    {.text = (char *)"! Enable"},
     {.text = (char *)"@ Volume",  .val = 0},
     {.text = (char *)"@ Subs",    .val = 0},
     {.text = (char *)"@ Time",    .val = 0}
@@ -213,16 +208,12 @@ static bool PadPage_Callback(const Page *cur_page, InputMsg msg) {
     }
 
     if (opt->order == 1) {
-        // "Enable" button: select this pad and request exit
+        // "Enable" action: select this pad and request exit
         g_selected_pad = pad_idx;
         g_exit_requested = 1;
-    } else if (opt->order >= 2 && opt->order <= 5) {
-        // Checkbox items (Data Ch, Volume, Subs, Time)
-        // val is already auto-toggled by WouoUI auto_deal_with_msg
-        // Sync the master data channel enable from the "Data Ch" checkbox (order 2)
-        const ListPage *lp = (const ListPage *)cur_page;
-        g_pad_dc_enabled[pad_idx] = (lp->option_array[2].val != 0) ? 1 : 0;
     }
+    // Checkbox items (Volume, Subs, Time) at order 2-4
+    // val is auto-toggled by WouoUI auto_deal_with_msg
 
     return false;
 }
@@ -303,8 +294,18 @@ void WouoUI_K9Pad_SetSelectedPad(uint8_t pad) {
     g_selected_pad = pad;
 }
 
-// Get brightness value (0-100)
+// Get brightness value (0-100) — confirmed value from settings option
 uint8_t WouoUI_K9Pad_GetBrightness(void) {
+    return (uint8_t)settings_option_array[2].val;
+}
+
+// Get live brightness value (0-100)
+// Returns the real-time slider value when brightness ValWin is active,
+// otherwise returns the confirmed value from settings.
+uint8_t WouoUI_K9Pad_GetLiveBrightness(void) {
+    if (p_cur_ui->current_page == (PageAddr)&brightness_win) {
+        return (uint8_t)brightness_win.val;
+    }
     return (uint8_t)settings_option_array[2].val;
 }
 
@@ -333,14 +334,7 @@ void WouoUI_K9Pad_ClearExitRequested(void) {
     g_exit_requested = 0;
 }
 
-// Check if data channel is enabled for a pad (master "Data Ch" checkbox)
-uint8_t WouoUI_K9Pad_IsDataChannelEnabled(uint8_t pad_index) {
-    if (pad_index > 2) return 0;
-    return g_pad_dc_enabled[pad_index];
-}
-
 // Get bitmask of enabled data channel functions for a pad
-// Bit 0: reserved (master enable is separate)
 // Bit 1: Volume display
 // Bit 2: Subscriber count
 // Bit 3: Time display
@@ -354,8 +348,13 @@ uint16_t WouoUI_K9Pad_GetEnabledFunctions(uint8_t pad_index) {
         default: return 0;
     }
     uint16_t mask = 0;
-    if (opts[3].val) mask |= (1 << 1);  // Volume  -> bit 1
-    if (opts[4].val) mask |= (1 << 2);  // Subs    -> bit 2
-    if (opts[5].val) mask |= (1 << 3);  // Time    -> bit 3
+    if (opts[2].val) mask |= (1 << 1);  // Volume  -> bit 1
+    if (opts[3].val) mask |= (1 << 2);  // Subs    -> bit 2
+    if (opts[4].val) mask |= (1 << 3);  // Time    -> bit 3
     return mask;
+}
+
+// Check if data channel is enabled for a pad (any function checkbox is checked)
+uint8_t WouoUI_K9Pad_IsDataChannelEnabled(uint8_t pad_index) {
+    return WouoUI_K9Pad_GetEnabledFunctions(pad_index) != 0 ? 1 : 0;
 }
