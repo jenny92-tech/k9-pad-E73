@@ -1,21 +1,29 @@
 // INPUT:  nRF52840 NVMC registers
-// OUTPUT: flash_read_brightness(), flash_write_brightness()
-// POS:    持久化设置存储（亮度等），使用 Flash 末尾 4KB 页
+// OUTPUT: flash_read_brightness(), flash_write_brightness(), flash_read_screen_timeout(), flash_write_screen_timeout()
+// POS:    持久化设置存储（亮度、屏幕超时等），使用 Flash 末尾 4KB 页
 //! Flash-based persistent settings storage
 //!
 //! Uses a dedicated 4KB flash page at 0xF3000 (last page before bootloader).
-//! Log-structured: each brightness write appends a 4-byte entry.
+//! Log-structured: each setting write appends a 4-byte entry.
 //! ~1024 writes per erase cycle.
+//!
+//! Entry format: [0x4B, 0x39, value, setting_type]
+//!   setting_type = 0x00 → brightness (backward compatible with existing entries)
+//!   setting_type = 0x01 → screen timeout (seconds: 5/10/20/30/60)
 
 /// Flash page address for settings storage (last 4KB before bootloader at 0xF4000)
 const SETTINGS_PAGE: u32 = 0x000F_3000;
 const SETTINGS_PAGE_SIZE: usize = 4096;
 
-/// Entry format: [magic_lo=0x4B, magic_hi=0x39, brightness, 0x00] ("K9" + val + padding)
+/// Entry format: [magic_lo=0x4B, magic_hi=0x39, value, setting_type]
 const MAGIC_LO: u8 = 0x4B; // 'K'
 const MAGIC_HI: u8 = 0x39; // '9'
 const ENTRY_SIZE: usize = 4;
 const MAX_ENTRIES: usize = SETTINGS_PAGE_SIZE / ENTRY_SIZE;
+
+/// Setting types
+const SETTING_BRIGHTNESS: u8 = 0x00;
+const SETTING_SCREEN_TIMEOUT: u8 = 0x01;
 
 /// NVMC register addresses
 const NVMC_BASE: u32 = 0x4001_E000;
@@ -40,11 +48,10 @@ unsafe fn nvmc_set_mode(mode: u32) {
     nvmc_wait_ready();
 }
 
-/// Read brightness from flash settings page.
-/// Scans the log-structured page for the last valid entry.
-/// Returns the stored brightness value, or 80 as default.
-pub fn flash_read_brightness() -> u8 {
-    let mut result: u8 = 80; // default
+/// Read a setting from flash. Scans the log-structured page for the last
+/// valid entry matching the given setting_type. Returns default if not found.
+fn flash_read_setting(setting_type: u8, default: u8) -> u8 {
+    let mut result = default;
 
     for i in 0..MAX_ENTRIES {
         let addr = SETTINGS_PAGE + (i * ENTRY_SIZE) as u32;
@@ -58,18 +65,16 @@ pub fn flash_read_brightness() -> u8 {
         }
 
         let bytes = word.to_le_bytes();
-        if bytes[0] == MAGIC_LO && bytes[1] == MAGIC_HI {
+        if bytes[0] == MAGIC_LO && bytes[1] == MAGIC_HI && bytes[3] == setting_type {
             result = bytes[2];
         }
     }
 
-    defmt::info!("Flash: read brightness = {}", result);
     result
 }
 
-/// Write brightness value to flash settings page.
-/// Appends a new entry. If the page is full, erases and writes fresh.
-pub fn flash_write_brightness(val: u8) {
+/// Write a setting to flash. Appends a new entry. If page is full, erases and writes fresh.
+fn flash_write_setting(setting_type: u8, val: u8) {
     // Find next free slot
     let mut free_slot: Option<usize> = None;
 
@@ -101,7 +106,7 @@ pub fn flash_write_brightness(val: u8) {
 
     let slot = free_slot.unwrap();
     let addr = SETTINGS_PAGE + (slot * ENTRY_SIZE) as u32;
-    let entry: u32 = u32::from_le_bytes([MAGIC_LO, MAGIC_HI, val, 0x00]);
+    let entry: u32 = u32::from_le_bytes([MAGIC_LO, MAGIC_HI, val, setting_type]);
 
     // SAFETY: Writing a 4-byte aligned word to our reserved settings page
     // via NVMC write mode. The address is within 0xF3000-0xF3FFF.
@@ -111,6 +116,32 @@ pub fn flash_write_brightness(val: u8) {
         nvmc_wait_ready();
         nvmc_set_mode(0); // Back to read mode
     }
+}
 
-    defmt::info!("Flash: wrote brightness = {} at slot {}", val, slot);
+/// Read brightness from flash settings page.
+/// Returns the stored brightness value, or 80 as default.
+pub fn flash_read_brightness() -> u8 {
+    let result = flash_read_setting(SETTING_BRIGHTNESS, 80);
+    defmt::info!("Flash: read brightness = {}", result);
+    result
+}
+
+/// Write brightness value to flash settings page.
+pub fn flash_write_brightness(val: u8) {
+    flash_write_setting(SETTING_BRIGHTNESS, val);
+    defmt::info!("Flash: wrote brightness = {}", val);
+}
+
+/// Read screen timeout from flash settings page.
+/// Returns the stored timeout in seconds, or 20 as default.
+pub fn flash_read_screen_timeout() -> u8 {
+    let result = flash_read_setting(SETTING_SCREEN_TIMEOUT, 20);
+    defmt::info!("Flash: read screen timeout = {}s", result);
+    result
+}
+
+/// Write screen timeout value (seconds) to flash settings page.
+pub fn flash_write_screen_timeout(val: u8) {
+    flash_write_setting(SETTING_SCREEN_TIMEOUT, val);
+    defmt::info!("Flash: wrote screen timeout = {}s", val);
 }

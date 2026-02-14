@@ -1,5 +1,5 @@
 // INPUT:  WouoUI.h
-// OUTPUT: K9Pad_MenuInit() — 8 主菜单项 + Layer/User/Settings/About 子页面 + SetBrightness
+// OUTPUT: K9Pad_MenuInit() — 8 主菜单项 + Layer/User/Settings/About 子页面 + SetBrightness + ScreenTimeout
 // POS:    K9-Pad 专用菜单树定义，被 WouoUI_port.c 调用
 /**
  * WouoUI K9-Pad Menu Configuration
@@ -10,7 +10,7 @@
  * Sub-pages:
  *   Layer 0/1/2/3/4: "Enable" action + Data Ch / Volume / Subs / Time checkboxes
  *   User: User A/B/C radio (BLE multi-device) + Clear Bond
- *   Settings: BLE toggle + Brightness slider + DFU Mode + To Bootloader
+ *   Settings: BLE toggle + Brightness slider + Screen Off selector + DFU Mode + To Bootloader
  *   About: firmware info
  */
 
@@ -28,6 +28,7 @@ static ListPage settings_page;
 static ListPage about_page;
 static MsgWin msg_win;
 static ValWin brightness_win;
+static ListWin screen_timeout_win;
 
 //--------当前选中的 Layer (0-4)
 static uint8_t g_selected_pad = 0;
@@ -41,12 +42,17 @@ static uint8_t g_dfu_requested = 0;
 //--------USB Bootloader 请求标志 (由 Settings 回调设置，Rust 侧轮询)
 static uint8_t g_usb_bl_requested = 0;
 
+//--------Screen timeout 选项 (ListWin 选择器)
+static char* screen_timeout_options[5] = {
+    (char*)"5s", (char*)"10s", (char*)"20s", (char*)"30s", (char*)"1min"
+};
+
 
 //--------页面选项数量
 #define MAIN_PAGE_NUM       8
 #define PAD_PAGE_NUM        5
 #define USER_PAGE_NUM       5
-#define SETTINGS_PAGE_NUM   5
+#define SETTINGS_PAGE_NUM   6
 #define ABOUT_PAGE_NUM      4
 
 //--------主菜单选项
@@ -213,6 +219,7 @@ static Option settings_option_array[SETTINGS_PAGE_NUM] = {
     {.text = (char *)"- Settings"},
     {.text = (char *)"@ BLE", .val = 1},
     {.text = (char *)"~ Brightness", .val = 80},
+    {.text = (char *)"> Screen Off", .content = (char*)"20s"},
     {.text = (char *)"! DFU Mode"},
     {.text = (char *)"! To Bootloader"}
 };
@@ -307,12 +314,15 @@ static bool SettingsPage_Callback(const Page *cur_page, InputMsg msg) {
         case 2: // Brightness - jump to ValWin
             WouoUI_JumpToPage((PageAddr)cur_page, &brightness_win);
             break;
-        case 3: // DFU Mode - request bootloader jump
+        case 3: // Screen Off - jump to ListWin selector
+            WouoUI_JumpToPage((PageAddr)cur_page, &screen_timeout_win);
+            break;
+        case 4: // DFU Mode - request bootloader jump
             g_dfu_requested = 1;
             WouoUI_MsgWinPageSetContent(&msg_win, (char*)"Entering DFU...");
             WouoUI_JumpToPage((PageAddr)cur_page, &msg_win);
             break;
-        case 4: // To Bootloader - request USB UF2 bootloader
+        case 5: // To Bootloader - request USB UF2 bootloader
             g_usb_bl_requested = 1;
             WouoUI_MsgWinPageSetContent(&msg_win, (char*)"To Bootloader...");
             WouoUI_JumpToPage((PageAddr)cur_page, &msg_win);
@@ -354,6 +364,9 @@ void WouoUI_UserInit(void) {
     // 亮度调节弹窗 (auto_get_bg_opt=true, auto_set_bg_opt=true)
     // 自动读写 settings_page 中 Brightness 选项的 val
     WouoUI_ValWinPageInit(&brightness_win, NULL, 80, 0, 100, 5, true, true, NULL);
+
+    // 屏幕超时选择弹窗 (auto_set_bg_opt=true: 自动更新 settings "Screen Off" 的 .content)
+    WouoUI_ListWinPageInit(&screen_timeout_win, 5, screen_timeout_options, true, NULL);
 }
 
 // Get selected layer index (0=Layer 0, 1=Layer 1, 2=Layer 2, 3=Layer 3, 4=Layer 4)
@@ -458,4 +471,29 @@ uint8_t WouoUI_K9Pad_GetUSBBootloaderRequested(void) {
 // Clear USB bootloader request flag
 void WouoUI_K9Pad_ClearUSBBootloaderRequested(void) {
     g_usb_bl_requested = 0;
+}
+
+// Get screen timeout in seconds from ListWin selection
+// Maps: "5s"->5, "10s"->10, "20s"->20, "30s"->30, "1min"->60
+uint8_t WouoUI_K9Pad_GetScreenTimeout(void) {
+    static const uint8_t timeout_values[5] = {5, 10, 20, 30, 60};
+    uint8_t idx = screen_timeout_win.sel_str_index;
+    if (idx >= 5) idx = 2; // default to 20s
+    return timeout_values[idx];
+}
+
+// Set screen timeout by seconds value
+// Maps seconds to the corresponding ListWin index and updates .content
+void WouoUI_K9Pad_SetScreenTimeout(uint8_t seconds) {
+    uint8_t idx;
+    switch (seconds) {
+        case 5:  idx = 0; break;
+        case 10: idx = 1; break;
+        case 30: idx = 3; break;
+        case 60: idx = 4; break;
+        default: idx = 2; break; // 20s default
+    }
+    screen_timeout_win.sel_str_index = idx;
+    // Update the Settings page option content to reflect current selection
+    settings_option_array[3].content = screen_timeout_options[idx];
 }

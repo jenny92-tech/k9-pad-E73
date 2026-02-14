@@ -102,6 +102,12 @@ extern "C" {
 
     /// Clear USB bootloader request flag
     fn WouoUI_K9Pad_ClearUSBBootloaderRequested();
+
+    /// Get screen timeout in seconds (5/10/20/30/60)
+    fn WouoUI_K9Pad_GetScreenTimeout() -> u8;
+
+    /// Set screen timeout by seconds value
+    fn WouoUI_K9Pad_SetScreenTimeout(seconds: u8);
 }
 
 /// Safe Rust interface to WouoUI
@@ -318,6 +324,26 @@ impl WouoUI {
                 false
             }
         }
+    }
+
+    /// Get screen timeout in seconds (5/10/20/30/60)
+    pub fn get_screen_timeout(&self) -> u8 {
+        if !self.initialized {
+            return 20;
+        }
+        // SAFETY: WouoUI_K9Pad_GetScreenTimeout reads screen_timeout_win.sel_str_index
+        // and maps it to seconds. Pure read, no side effects.
+        unsafe { WouoUI_K9Pad_GetScreenTimeout() }
+    }
+
+    /// Set screen timeout by seconds value (5/10/20/30/60)
+    pub fn set_screen_timeout(&mut self, seconds: u8) {
+        if !self.initialized {
+            return;
+        }
+        // SAFETY: WouoUI_K9Pad_SetScreenTimeout writes to screen_timeout_win.sel_str_index
+        // and settings_option_array[3].content. The `initialized` check guarantees these exist.
+        unsafe { WouoUI_K9Pad_SetScreenTimeout(seconds) }
     }
 
     /// Check and consume USB bootloader request from C callbacks

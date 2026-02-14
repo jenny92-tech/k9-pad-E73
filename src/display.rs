@@ -1,6 +1,6 @@
-// INPUT:  embassy_nrf(twim,gpio), embedded_graphics, wououi, data_channel, menu, mode, battery, rmk(BleState)
+// INPUT:  embassy_nrf(twim,gpio), embedded_graphics, wououi, data_channel, menu, mode, battery, flash_settings, rmk(BleState)
 // OUTPUT: pub run_display() async task
-// POS:    OLED 显示主循环，30FPS 菜单 / 1FPS 首页 / 数据通道渲染
+// POS:    OLED 显示主循环，30FPS 菜单 / 1FPS 首页 / 数据通道渲染 / 屏幕自动休眠
 // display.rs - SH1107 OLED 显示管理（横屏 128x64 布局）
 //
 // 集成 WouoUI 菜单系统，支持：
@@ -275,7 +275,7 @@ unsafe fn read_battery_adc_raw() -> i16 {
     ADC_BUF
 }
 
-/// 读取电池电压 (mV)。
+/// 读取电池电压 (mV)，4 次采样取平均以降低噪声。
 ///
 /// 硬件分压: R8=820kΩ (VBAT→POWER_PIN), R10=2MΩ (POWER_PIN→GND)
 /// V_adc = VBAT × R10/(R8+R10) = VBAT × 2000/2820
@@ -287,8 +287,15 @@ unsafe fn read_battery_adc_raw() -> i16 {
 ///
 /// 合并: VBAT = raw × 3600 × 2820 / (4096 × 2000) = raw × 1269 / 1024
 fn read_battery_voltage_mv() -> u16 {
-    let raw = unsafe { read_battery_adc_raw() }.max(0) as u32;
-    ((raw * 1269) / 1024) as u16
+    const SAMPLES: u32 = 4;
+    let mut sum: u32 = 0;
+    let mut i: u32 = 0;
+    while i < SAMPLES {
+        let raw = unsafe { read_battery_adc_raw() }.max(0) as u32;
+        sum += (raw * 1269) / 1024;
+        i += 1;
+    }
+    (sum / SAMPLES) as u16
 }
 
 /// 启用 GPIO 内部上拉
@@ -686,6 +693,16 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
         defmt::info!("Restored brightness: {}% (contrast={})", saved_brightness, contrast);
     }
 
+    // 从 flash 恢复屏幕超时设置
+    let saved_timeout = crate::flash_settings::flash_read_screen_timeout();
+    wououi.set_screen_timeout(saved_timeout);
+    let mut screen_timeout_secs: u8 = saved_timeout;
+    let mut confirmed_screen_timeout: u8 = saved_timeout;
+
+    // 屏幕睡眠状态
+    let mut screen_on = true;
+    let mut last_screen_activity = Instant::now();
+
     // 菜单状态跟踪
     let mut menu_active = false;
     let mut menu_idle_ticks: u16 = 0;
@@ -740,6 +757,8 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
     // 电池读取计时
     let mut last_battery_read = Instant::now();
     const BATTERY_READ_INTERVAL: Duration = Duration::from_secs(5);
+    // EMA 平滑用的累积值 (×10 精度，避免浮点)
+    let mut smooth_pct_x10: u16 = battery_status.percentage as u16 * 10;
 
     // 发送初始菜单状态
     let initial_state = MenuState {
@@ -769,8 +788,23 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
         while let Ok(input) = MENU_INPUT.try_receive() {
             defmt::info!("Menu input: {:?}", defmt::Debug2Format(&input));
 
-            // 重置空闲计时
+            // 屏幕关闭时，任何输入唤醒屏幕但不转发给菜单系统
+            if !screen_on {
+                defmt::info!("Screen wake: input while screen off");
+                display.send_command(0xAF).await.ok(); // Display ON
+                {
+                    const MIN_CONTRAST: u16 = 5;
+                    let contrast = (MIN_CONTRAST + current_brightness as u16 * (255 - MIN_CONTRAST) / 100) as u8;
+                    display.set_contrast(contrast).await.ok();
+                }
+                screen_on = true;
+                last_screen_activity = now;
+                continue; // consume input, don't forward
+            }
+
+            // 重置空闲计时（屏幕开启时）
             menu_idle_ticks = 0;
+            last_screen_activity = now;
 
             match input {
                 MenuInput::EnterMenu => {
@@ -811,17 +845,45 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
             }
         }
 
+        // 数据通道接收唤醒屏幕
+        if !screen_on {
+            if let Ok(_) = DISPLAY_DATA.try_receive() {
+                defmt::info!("Screen wake: data channel received while screen off");
+                display.send_command(0xAF).await.ok(); // Display ON
+                {
+                    const MIN_CONTRAST: u16 = 5;
+                    let contrast = (MIN_CONTRAST + current_brightness as u16 * (255 - MIN_CONTRAST) / 100) as u8;
+                    display.set_contrast(contrast).await.ok();
+                }
+                screen_on = true;
+                last_screen_activity = now;
+                // Note: the consumed data command is lost, but next loop iteration picks up more
+            }
+        }
+
         // 更新电池状态（每 5 秒直接读取 SAADC + 充电引脚）
         if now.duration_since(last_battery_read) >= BATTERY_READ_INTERVAL {
             last_battery_read = now;
 
             let voltage = read_battery_voltage_mv();
-            let percentage = crate::battery::calc_percentage(voltage);
+            let raw_pct = crate::battery::calc_percentage(voltage);
             let is_charging = unsafe { read_charge_pin() };
+
+            // EMA 平滑：smooth = raw * 3 + prev * 7（α ≈ 0.3）
+            // 使用 ×10 精度避免整数截断累积误差
+            // 充电时不平滑（允许快速上升显示充电进度）
+            let smoothed_pct = if is_charging {
+                smooth_pct_x10 = raw_pct as u16 * 10;
+                raw_pct
+            } else {
+                smooth_pct_x10 =
+                    (raw_pct as u16 * 10 * 3 + smooth_pct_x10 * 7 + 5) / 10;
+                ((smooth_pct_x10 + 5) / 10) as u8
+            };
 
             battery_status = crate::battery::BatteryStatus {
                 voltage_mv: voltage,
-                percentage,
+                percentage: smoothed_pct,
                 is_charging,
             };
 
@@ -829,9 +891,10 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
             battery_status_tx.send(battery_status);
 
             defmt::info!(
-                "Battery: {}mV {}% charging={}",
+                "Battery: {}mV raw={}% smooth={}% charging={}",
                 voltage,
-                percentage,
+                raw_pct,
+                smoothed_pct,
                 is_charging
             );
 
@@ -851,7 +914,8 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
             }
         }
 
-        // 渲染
+        // 渲染 + 刷新（仅在屏幕开启时）
+        if screen_on {
         if menu_active {
             // 菜单模式：使用 WouoUI 渲染
             // 限制帧间隔在合理范围，防止从低帧率(首页1FPS)切换时
@@ -926,6 +990,15 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
                 crate::flash_settings::flash_write_brightness(confirmed);
             }
 
+            // 持久化屏幕超时：检测 ListWin 确认值变化
+            let timeout = wououi.get_screen_timeout();
+            if timeout != confirmed_screen_timeout {
+                confirmed_screen_timeout = timeout;
+                screen_timeout_secs = timeout;
+                crate::flash_settings::flash_write_screen_timeout(timeout);
+                defmt::info!("Screen timeout changed: {}s", timeout);
+            }
+
             // 检测 BLE 开关变化
             let ble_enabled = wououi.get_ble_enabled();
             if ble_enabled != current_ble_enabled {
@@ -983,6 +1056,14 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
             // 非阻塞消费显示数据命令
             while let Ok(cmd) = DISPLAY_DATA.try_receive() {
                 dc_cache.apply(&cmd);
+                last_screen_activity = now; // 数据通道活动重置超时
+            }
+
+            // 屏幕自动休眠：仅在首页（非菜单）时检测超时
+            if now.duration_since(last_screen_activity) >= Duration::from_secs(screen_timeout_secs as u64) {
+                defmt::info!("Screen sleep: timeout {}s reached", screen_timeout_secs);
+                display.send_command(0xAE).await.ok(); // Display OFF
+                screen_on = false;
             }
 
             // 检查当前 Pad 是否启用了数据通道
@@ -1039,6 +1120,7 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
         if let Err(_) = display.flush().await {
             defmt::error!("Display flush failed");
         }
+        } // end if screen_on
 
         // 广播菜单状态（仅在 active 变化时发送，避免每帧都广播）
         {
@@ -1061,8 +1143,10 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
             }
         }
 
-        // 动态帧率：菜单模式 ~125 FPS，首页 1 FPS
-        let frame_delay = if menu_active {
+        // 动态帧率：菜单模式 ~125 FPS，首页 1 FPS，屏幕关闭 200ms 轮询
+        let frame_delay = if !screen_on {
+            Duration::from_millis(200) // 200ms 轮询，响应唤醒事件
+        } else if menu_active {
             Duration::from_millis(MENU_FRAME_MS as u64) // ~125 FPS
         } else {
             Duration::from_millis(1000) // 1 FPS
