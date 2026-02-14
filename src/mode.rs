@@ -1,3 +1,6 @@
+// INPUT:  embassy_sync
+// OUTPUT: KeyboardMode enum, CURRENT_MODE watch
+// POS:    键盘模式管理（Layer 0/1/2），纯逻辑可测试
 // mode.rs - 键盘模式管理
 //
 // 设计原则：

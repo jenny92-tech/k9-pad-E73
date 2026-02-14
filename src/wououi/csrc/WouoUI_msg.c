@@ -1,3 +1,6 @@
+// INPUT:  WouoUI_msg.h
+// OUTPUT: MsgQueIsEmpty/IsFull/Enque/Deque ring buffer operations
+// POS:    输入消息环形队列，缓冲用户输入事件
 #include "WouoUI_msg.h"
 
 bool WouoUI_MsgQueIsEmpty(InputMsgQue* msg_que) {// 队列空

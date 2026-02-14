@@ -1,3 +1,6 @@
+// INPUT:  k9_datachannel_proto, embassy_sync, heapless
+// OUTPUT: DisplayCommand, DisplayDataCache, DisplaySlotData, DISPLAY_DATA channel, CONFIG_CHANGED watch
+// POS:    BLE 数据通道协议解析，主机推送数据 → DisplayCommand → 显示循环
 // data_channel.rs - 数据通道处理 + 配置上报
 //
 // 从主机接收显示数据（通过 BLE GATT 或 USB CDC），

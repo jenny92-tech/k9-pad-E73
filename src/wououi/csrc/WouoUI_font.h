@@ -1,3 +1,6 @@
+// INPUT:  (none)
+// OUTPUT: Font array declarations, MAX_HEIGHT/WIDTH_FONT
+// POS:    字体头文件，声明点阵字体数组
 #ifndef __WOUOUI_FONT_H
 #define __WOUOUI_FONT_H
 

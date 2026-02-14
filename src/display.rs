@@ -1,3 +1,6 @@
+// INPUT:  embassy_nrf(twim,gpio), embedded_graphics, wououi, data_channel, menu, mode, battery, rmk(BleState)
+// OUTPUT: pub run_display() async task
+// POS:    OLED 显示主循环，30FPS 菜单 / 1FPS 首页 / 数据通道渲染
 // display.rs - SH1107 OLED 显示管理（横屏 128x64 布局）
 //
 // 集成 WouoUI 菜单系统，支持：
@@ -856,6 +859,17 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
                 menu_active = false;
                 wououi.exit_menu();
                 defmt::info!("WouoUI: Exit requested by callback");
+            }
+
+            // C 回调请求进入 DFU 模式（Settings -> DFU Mode）
+            if wououi.take_dfu_request() {
+                defmt::info!("DFU mode requested, jumping to bootloader...");
+                // 写 0xA8 到 GPREGRET 寄存器，Adafruit bootloader 识别后进入 BLE OTA DFU
+                // 注意：0x57 = USB UF2 DFU（因 DECUSB 未接电容不可用），0xA8 = BLE OTA DFU
+                embassy_nrf::pac::POWER
+                    .gpregret()
+                    .write_value(embassy_nrf::pac::power::regs::Gpregret(0xA8));
+                cortex_m::peripheral::SCB::sys_reset();
             }
 
             // 检测 Pad 选择变化，切换 RMK Layer

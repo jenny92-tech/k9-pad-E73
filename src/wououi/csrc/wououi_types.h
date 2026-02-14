@@ -1,3 +1,6 @@
+// INPUT:  (none)
+// OUTPUT: int8_t..uint32_t, size_t, bool, NULL typedefs
+// POS:    bare-metal 类型定义，替代 stdint.h/stdbool.h
 /**
  * Minimal type definitions for bare-metal compilation
  * Replaces standard library headers

@@ -1,3 +1,6 @@
+// INPUT:  WouoUI_common.h
+// OUTPUT: AnimPos/SlidePos structs, animation function declarations
+// POS:    动画引擎头文件，定义动画结构体和接口
 #ifndef __WOUOUI_ANIM__
 #define __WOUOUI_ANIM__
 

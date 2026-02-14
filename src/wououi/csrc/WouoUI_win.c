@@ -1,3 +1,6 @@
+// INPUT:  WouoUI_win.h, WouoUI.h
+// OUTPUT: MsgWin/ConfWin/ValWin init/show/react methods
+// POS:    弹窗系统实现，消息/确认/数值调节弹窗
 #include "WouoUI_win.h"
 #include "WouoUI.h"//包含自己的顶层文件其实不好(但需要调用到p_cur_ui,后期再改吧)
 

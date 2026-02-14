@@ -1,3 +1,6 @@
+// INPUT:  (none)
+// OUTPUT: KeyCode enum
+// POS:    键码占位定义，实际由 RMK 提供
 // keyboard.rs - 键码定义（简化版，实际需要对接 RMK 的键码）
 // 这些是占位定义，实际编译时需要替换为 RMK 的真实键码
 

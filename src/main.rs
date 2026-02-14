@@ -1,3 +1,6 @@
+// INPUT:  rmk, embassy_nrf, battery, data_channel, mode, display, menu, wououi
+// OUTPUT: Firmware entry point (pre_init + rmk_keyboard macro)
+// POS:    程序入口，初始化硬件并启动 RMK 键盘主循环
 #![no_std]
 #![no_main]
 
@@ -10,6 +13,7 @@ use panic_probe as _;
 
 mod battery;
 mod data_channel;
+mod integrity;
 mod mode;
 mod display;
 mod menu;
@@ -21,14 +25,20 @@ pub use mode::*;
 pub use display::run_display;
 pub use menu::*;
 
-/// Pre-init: Enable DC/DC for low power
-// SAFETY: Called by cortex-m-rt before main. The address 0x4000_0078 is the
-// nRF52840 POWER.DCDCEN register. Writing 1 enables the DC/DC converter.
-// No other code runs at this point, so there are no data races.
+/// Pre-init: DC/DC enable + firmware integrity check.
+// SAFETY: Called by cortex-m-rt before main, before .data/.bss init.
+// All accessed data is in flash (.rodata) or hardware registers.
 #[cortex_m_rt::pre_init]
 unsafe fn pre_init() {
+    // Enable DC/DC converter for low power
     const DCDCEN_ADDR: *mut u32 = 0x4000_0078 as *mut u32;
     core::ptr::write_volatile(DCDCEN_ADDR, 1);
+
+    // Firmware CRC32 integrity check — if corrupted (e.g. interrupted DFU),
+    // enter BLE OTA DFU mode instead of booting broken firmware.
+    if !integrity::verify_firmware() {
+        integrity::enter_dfu_mode();
+    }
 }
 
 // RMK keyboard macro

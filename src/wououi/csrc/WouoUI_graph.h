@@ -1,3 +1,6 @@
+// INPUT:  WouoUI_font.h, WouoUI_common.h
+// OUTPUT: Screen/Pen/ScreenBuff types, Draw* function declarations
+// POS:    绘图层头文件，定义屏幕缓冲区和绘图 API
 #ifndef __WOUOUI_GRAPH_H__
 #define __WOUOUI_GRAPH_H__
 

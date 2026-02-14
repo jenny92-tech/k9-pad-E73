@@ -1,3 +1,6 @@
+// INPUT:  cc, const_gen, xz2, memory.x, vial.json, src/wououi/csrc/*.c
+// OUTPUT: libwououi.a, config_generated.rs, linker configuration
+// POS:    Cargo 构建脚本：交叉编译 WouoUI C 库 + 生成 vial 配置
 //! This build script copies the `memory.x` file from the crate root into
 //! a directory where the linker can always find it at build time.
 //! For many projects this is optional, as the linker always searches the

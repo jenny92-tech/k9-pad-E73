@@ -1,3 +1,6 @@
+// INPUT:  (none, user-editable)
+// OUTPUT: SCREEN_WIDTH/HEIGHT, animation timing, font selection macros
+// POS:    用户配置文件，屏幕尺寸/动画参数/字体选择
 #ifndef __WOUOUI_CONF_H__
 #define __WOUOUI_CONF_H__
 

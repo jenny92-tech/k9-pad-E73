@@ -1,3 +1,6 @@
+// INPUT:  WouoUI_font.h
+// OUTPUT: F6x8[], F8x16[], F12x24[] font bitmap arrays
+// POS:    ASCII 点阵字体数据，存储在 flash .rodata
 #include "WouoUI_font.h"
 
 // 常用ASCII表

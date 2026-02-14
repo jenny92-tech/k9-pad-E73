@@ -1,3 +1,6 @@
+// INPUT:  WouoUI_page.h
+// OUTPUT: MsgWin/ConfWin/ValWin structs, window method declarations
+// POS:    弹窗系统头文件，定义弹窗结构体和接口
 #ifndef __WOUOUI_WIN_H__
 #define __WOUOUI_WIN_H__
 

@@ -1,3 +1,6 @@
+// INPUT:  WouoUI_graph.h, WouoUI_font.h
+// OUTPUT: DrawPoint/DrawLine/DrawBox/DrawStr/FillBuff screen operations
+// POS:    底层绘图层，像素级操作 screen buffer
 #include "WouoUI_graph.h"
 
 static Screen cur_screen; //当前操作的屏幕对象，是个指针集合(所以没有必要使用指针)

@@ -1,3 +1,6 @@
+// INPUT:  WouoUI_page.h, WouoUI.h
+// OUTPUT: TitlePage/ListPage/WavePage init/show/react methods
+// POS:    页面系统实现，磁贴页/列表页/波形页的渲染和交互逻辑
 #include "WouoUI_page.h"
 #include "WouoUI.h" //包含自己的顶层文件其实不好(但需要调用到p_cur_ui,后期再改吧)
 // math.h removed for bare-metal - using ABS macro from WouoUI_common.h

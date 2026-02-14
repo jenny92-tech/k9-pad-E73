@@ -1,3 +1,6 @@
+// INPUT:  state, controller
+// OUTPUT: pub use state::*, controller::*
+// POS:    菜单系统模块入口，条件编译隔离硬件依赖
 // menu/mod.rs - 菜单系统模块入口
 //
 // WouoUI C library 集成，通过 FFI 实现 OLED 动画菜单

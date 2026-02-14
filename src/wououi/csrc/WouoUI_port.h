@@ -1,3 +1,6 @@
+// INPUT:  WouoUI.h
+// OUTPUT: WouoUI_PortInit/Tick/SetInput/GetBuff declarations
+// POS:    平台接口头文件，定义 Rust FFI 调用的 C 函数签名
 /**
  * WouoUI Port Layer for K9-Pad E73
  *

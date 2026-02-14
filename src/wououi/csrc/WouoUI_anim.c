@@ -1,3 +1,6 @@
+// INPUT:  WouoUI_anim.h
+// OUTPUT: WouoUI_Animation(), WouoUI_SlideAnimation(), WouoUI_AnimIsEnd()
+// POS:    非线性插值动画引擎，驱动所有 UI 过渡效果
 #include "WouoUI_anim.h"
 
 /**

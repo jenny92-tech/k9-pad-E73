@@ -1,3 +1,6 @@
+// INPUT:  embassy_sync
+// OUTPUT: MenuInput, MenuState, PageId, MENU_INPUT channel, MENU_STATE watch
+// POS:    菜单通信类型定义 + 全局 channel/watch（controller → display）
 // menu/state.rs - 菜单状态和全局通道
 //
 // 核心数据结构：

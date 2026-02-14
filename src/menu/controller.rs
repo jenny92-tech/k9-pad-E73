@@ -1,3 +1,6 @@
+// INPUT:  rmk(KeyEvent, RotaryEncoder), embassy_time, menu::state
+// OUTPUT: menu_controller_task() async task
+// POS:    监听 SW1/编码器/确认键 → 转换为 MenuInput 发送到 channel
 // menu/controller.rs - 菜单控制器
 //
 // 手动订阅 KeyEvent，在菜单模式下将按键转换为菜单输入

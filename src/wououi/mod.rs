@@ -1,3 +1,6 @@
+// INPUT:  WouoUI C library (extern "C" FFI)
+// OUTPUT: WouoUI struct, WououiInput enum, SCREEN_WIDTH/HEIGHT
+// POS:    WouoUI C 库的安全 Rust 封装，提供 init/tick/input/get_buffer
 //! WouoUI FFI bindings for K9-Pad E73
 //!
 //! This module provides Rust bindings to the WouoUI C library for
@@ -84,6 +87,12 @@ extern "C" {
 
     /// Get bitmask of enabled data channel functions for a pad
     fn WouoUI_K9Pad_GetEnabledFunctions(pad_index: u8) -> u16;
+
+    /// Check if DFU mode was requested
+    fn WouoUI_K9Pad_GetDFURequested() -> u8;
+
+    /// Clear DFU request flag
+    fn WouoUI_K9Pad_ClearDFURequested();
 }
 
 /// Safe Rust interface to WouoUI
@@ -275,6 +284,21 @@ impl WouoUI {
         // SAFETY: WouoUI_K9Pad_GetEnabledFunctions reads option .val fields
         // from the C menu arrays. Pure read, no side effects.
         unsafe { WouoUI_K9Pad_GetEnabledFunctions(pad) }
+    }
+
+    /// Check and consume DFU mode request from C callbacks
+    pub fn take_dfu_request(&mut self) -> bool {
+        if !self.initialized {
+            return false;
+        }
+        unsafe {
+            if WouoUI_K9Pad_GetDFURequested() != 0 {
+                WouoUI_K9Pad_ClearDFURequested();
+                true
+            } else {
+                false
+            }
+        }
     }
 
     /// Get a reference to the screen buffer

@@ -1,3 +1,6 @@
+// INPUT:  WouoUI.h, WouoUI_page.h (TitlePage/ListPage/WavePage methods)
+// OUTPUT: WouoUI_Init(), WouoUI_Tick(), page dispatch state machine
+// POS:    WouoUI 主状态机，驱动页面调度和动画循环
 #include "WouoUI.h"
 
 // 静态函数声明(方便全局变量初始化函数指针)

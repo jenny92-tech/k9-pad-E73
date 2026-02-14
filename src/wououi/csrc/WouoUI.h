@@ -1,3 +1,6 @@
+// INPUT:  WouoUI_common.h, WouoUI_page.h, WouoUI_win.h, WouoUI_msg.h
+// OUTPUT: WouoUI_UI struct, WouoUI_Init/Tick/CheckPageType API
+// POS:    WouoUI 顶层头文件，定义 UI 主结构体和公共 API
 /*
 版本更新日志：
 Version-1.0.0[2025.02.09]:

@@ -1,3 +1,6 @@
+// INPUT:  WouoUI_common.h, WouoUI_graph.h, WouoUI_anim.h
+// OUTPUT: TitlePage/ListPage/WavePage structs, page method declarations
+// POS:    页面系统头文件，定义页面结构体和虚方法表
 #ifndef __WOUOUI_PAGE__
 #define __WOUOUI_PAGE__
 

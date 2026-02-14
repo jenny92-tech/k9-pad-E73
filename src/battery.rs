@@ -1,3 +1,6 @@
+// INPUT:  embassy_nrf(saadc, gpio), embassy_sync
+// OUTPUT: BatteryStatus, BATTERY_STATUS watch, calc_percentage(), battery_task()
+// POS:    电池 ADC 采样与电量计算，通过 Watch 广播状态
 // battery.rs - 电池状态检测
 use embassy_nrf::saadc::Saadc;
 use embassy_nrf::gpio::Input;

@@ -1,3 +1,6 @@
+// INPUT:  WouoUI_conf.h, wououi_types.h
+// OUTPUT: ABS/MIN/MAX macros, bool/PageAddr/Option types, memory function decls
+// POS:    公共头文件，所有 WouoUI 模块的共享类型和宏定义
 #ifndef __WOUOUI_COMMON_H__
 #define __WOUOUI_COMMON_H__
 

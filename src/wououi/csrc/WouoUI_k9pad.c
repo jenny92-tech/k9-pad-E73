@@ -1,3 +1,6 @@
+// INPUT:  WouoUI.h
+// OUTPUT: K9Pad_MenuInit() — 6 主菜单项 + Layer/User/Settings/About 子页面
+// POS:    K9-Pad 专用菜单树定义，被 WouoUI_port.c 调用
 /**
  * WouoUI K9-Pad Menu Configuration
  *
@@ -30,12 +33,15 @@ static uint8_t g_selected_pad = 0;
 //--------菜单退出请求标志 (由回调设置，Rust 侧轮询)
 static uint8_t g_exit_requested = 0;
 
+//--------DFU 模式请求标志 (由 Settings 回调设置，Rust 侧轮询)
+static uint8_t g_dfu_requested = 0;
+
 
 //--------页面选项数量
 #define MAIN_PAGE_NUM       6
 #define PAD_PAGE_NUM        5
 #define USER_PAGE_NUM       5
-#define SETTINGS_PAGE_NUM   3
+#define SETTINGS_PAGE_NUM   4
 #define ABOUT_PAGE_NUM      4
 
 //--------主菜单选项
@@ -159,7 +165,8 @@ static Option user_option_array[USER_PAGE_NUM] = {
 static Option settings_option_array[SETTINGS_PAGE_NUM] = {
     {.text = (char *)"- Settings"},
     {.text = (char *)"@ BLE", .val = 1},
-    {.text = (char *)"~ Brightness", .val = 80}
+    {.text = (char *)"~ Brightness", .val = 80},
+    {.text = (char *)"! DFU Mode"}
 };
 
 //--------About 页面选项
@@ -245,6 +252,11 @@ static bool SettingsPage_Callback(const Page *cur_page, InputMsg msg) {
             break;
         case 2: // Brightness - jump to ValWin
             WouoUI_JumpToPage((PageAddr)cur_page, &brightness_win);
+            break;
+        case 3: // DFU Mode - request bootloader jump
+            g_dfu_requested = 1;
+            WouoUI_MsgWinPageSetContent(&msg_win, (char*)"Entering DFU...");
+            WouoUI_JumpToPage((PageAddr)cur_page, &msg_win);
             break;
     }
     return false;
@@ -357,4 +369,14 @@ uint16_t WouoUI_K9Pad_GetEnabledFunctions(uint8_t pad_index) {
 // Check if data channel is enabled for a pad (any function checkbox is checked)
 uint8_t WouoUI_K9Pad_IsDataChannelEnabled(uint8_t pad_index) {
     return WouoUI_K9Pad_GetEnabledFunctions(pad_index) != 0 ? 1 : 0;
+}
+
+// Check if DFU mode was requested
+uint8_t WouoUI_K9Pad_GetDFURequested(void) {
+    return g_dfu_requested;
+}
+
+// Clear DFU request flag
+void WouoUI_K9Pad_ClearDFURequested(void) {
+    g_dfu_requested = 0;
 }

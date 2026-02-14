@@ -1,3 +1,6 @@
+// INPUT:  WouoUI_common.h
+// OUTPUT: InputMsg enum, InputMsgQue struct, queue function declarations
+// POS:    消息队列头文件，定义输入事件类型和队列接口
 #ifndef __WOUOUI_MSG_H__
 #define __WOUOUI_MSG_H__
 

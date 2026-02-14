@@ -1,3 +1,6 @@
+// INPUT:  WouoUI_port.h, WouoUI.h, WouoUI_k9pad.c(K9Pad_MenuInit)
+// OUTPUT: WouoUI_PortInit(), WouoUI_PortTick(), WouoUI_PortSetInput()
+// POS:    平台接口层，连接 Rust FFI 和 WouoUI 核心
 /**
  * WouoUI Port Layer for K9-Pad E73
  *

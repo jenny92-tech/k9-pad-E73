@@ -1,3 +1,6 @@
+// INPUT:  WouoUI_user.h, WouoUI.h
+// OUTPUT: TestUI_Init() example menu tree
+// POS:    WouoUI 示例菜单定义（已被 WouoUI_k9pad.c 替代）
 #include "WouoUI_user.h"
 #include "WouoUI.h"
 #include "math.h"
