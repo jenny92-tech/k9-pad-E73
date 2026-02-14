@@ -10,7 +10,7 @@
  * Sub-pages:
  *   Layer 0/1/2: "Enable" action + Data Ch / Volume / Subs / Time checkboxes
  *   User: User A/B/C radio (BLE multi-device) + Clear Bond
- *   Settings: BLE toggle + Brightness slider
+ *   Settings: BLE toggle + Brightness slider + DFU Mode + To Bootloader
  *   About: firmware info
  */
 
@@ -36,12 +36,15 @@ static uint8_t g_exit_requested = 0;
 //--------DFU 模式请求标志 (由 Settings 回调设置，Rust 侧轮询)
 static uint8_t g_dfu_requested = 0;
 
+//--------USB Bootloader 请求标志 (由 Settings 回调设置，Rust 侧轮询)
+static uint8_t g_usb_bl_requested = 0;
+
 
 //--------页面选项数量
 #define MAIN_PAGE_NUM       6
 #define PAD_PAGE_NUM        5
 #define USER_PAGE_NUM       5
-#define SETTINGS_PAGE_NUM   4
+#define SETTINGS_PAGE_NUM   5
 #define ABOUT_PAGE_NUM      4
 
 //--------主菜单选项
@@ -166,7 +169,8 @@ static Option settings_option_array[SETTINGS_PAGE_NUM] = {
     {.text = (char *)"- Settings"},
     {.text = (char *)"@ BLE", .val = 1},
     {.text = (char *)"~ Brightness", .val = 80},
-    {.text = (char *)"! DFU Mode"}
+    {.text = (char *)"! DFU Mode"},
+    {.text = (char *)"! To Bootloader"}
 };
 
 //--------About 页面选项
@@ -256,6 +260,11 @@ static bool SettingsPage_Callback(const Page *cur_page, InputMsg msg) {
         case 3: // DFU Mode - request bootloader jump
             g_dfu_requested = 1;
             WouoUI_MsgWinPageSetContent(&msg_win, (char*)"Entering DFU...");
+            WouoUI_JumpToPage((PageAddr)cur_page, &msg_win);
+            break;
+        case 4: // To Bootloader - request USB UF2 bootloader
+            g_usb_bl_requested = 1;
+            WouoUI_MsgWinPageSetContent(&msg_win, (char*)"To Bootloader...");
             WouoUI_JumpToPage((PageAddr)cur_page, &msg_win);
             break;
     }
@@ -379,4 +388,14 @@ uint8_t WouoUI_K9Pad_GetDFURequested(void) {
 // Clear DFU request flag
 void WouoUI_K9Pad_ClearDFURequested(void) {
     g_dfu_requested = 0;
+}
+
+// Check if USB bootloader mode was requested
+uint8_t WouoUI_K9Pad_GetUSBBootloaderRequested(void) {
+    return g_usb_bl_requested;
+}
+
+// Clear USB bootloader request flag
+void WouoUI_K9Pad_ClearUSBBootloaderRequested(void) {
+    g_usb_bl_requested = 0;
 }

@@ -15,7 +15,7 @@ install_crate = { crate_name = "cargo-binutils", binary = "cargo", test_arg = [
     "--help",
 ] }
 command = "cargo"
-args = ["objcopy", "--release", "--", "-O", "ihex", "{{ project_name }}.hex"]
+args = ["objcopy", "--release", "--bin", "k9-pad-e73", "--", "-O", "ihex", "k9-pad-e73.hex"]
 dependencies = ["build"]
 
 [tasks.uf2]
@@ -27,9 +27,9 @@ command = "cargo"
 args = [
     "hex-to-uf2",
     "--input-path",
-    "{{ project_name }}.hex",
+    "k9-pad-e73.hex",
     "--output-path",
-    "{{ project_name }}.uf2",
+    "k9-pad-e73.uf2",
     "--family",
     "nrf52840",
 ]

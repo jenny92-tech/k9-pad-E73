@@ -93,6 +93,12 @@ extern "C" {
 
     /// Clear DFU request flag
     fn WouoUI_K9Pad_ClearDFURequested();
+
+    /// Check if USB bootloader mode was requested
+    fn WouoUI_K9Pad_GetUSBBootloaderRequested() -> u8;
+
+    /// Clear USB bootloader request flag
+    fn WouoUI_K9Pad_ClearUSBBootloaderRequested();
 }
 
 /// Safe Rust interface to WouoUI
@@ -294,6 +300,21 @@ impl WouoUI {
         unsafe {
             if WouoUI_K9Pad_GetDFURequested() != 0 {
                 WouoUI_K9Pad_ClearDFURequested();
+                true
+            } else {
+                false
+            }
+        }
+    }
+
+    /// Check and consume USB bootloader request from C callbacks
+    pub fn take_usb_bl_request(&mut self) -> bool {
+        if !self.initialized {
+            return false;
+        }
+        unsafe {
+            if WouoUI_K9Pad_GetUSBBootloaderRequested() != 0 {
+                WouoUI_K9Pad_ClearUSBBootloaderRequested();
                 true
             } else {
                 false

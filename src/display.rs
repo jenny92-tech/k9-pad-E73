@@ -864,11 +864,20 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
             // C 回调请求进入 DFU 模式（Settings -> DFU Mode）
             if wououi.take_dfu_request() {
                 defmt::info!("DFU mode requested, jumping to bootloader...");
-                // 写 0xA8 到 GPREGRET 寄存器，Adafruit bootloader 识别后进入 BLE OTA DFU
-                // 注意：0x57 = USB UF2 DFU（因 DECUSB 未接电容不可用），0xA8 = BLE OTA DFU
+                // 0xA8 → Adafruit bootloader 进入 BLE OTA DFU
                 embassy_nrf::pac::POWER
                     .gpregret()
                     .write_value(embassy_nrf::pac::power::regs::Gpregret(0xA8));
+                cortex_m::peripheral::SCB::sys_reset();
+            }
+
+            // C 回调请求进入 USB Bootloader（Settings -> To Bootloader）
+            if wououi.take_usb_bl_request() {
+                defmt::info!("USB bootloader requested, resetting...");
+                // 写 0x57 到 GPREGRET 寄存器，Adafruit bootloader 识别后进入 USB UF2 DFU
+                embassy_nrf::pac::POWER
+                    .gpregret()
+                    .write_value(embassy_nrf::pac::power::regs::Gpregret(0x57));
                 cortex_m::peripheral::SCB::sys_reset();
             }
 
