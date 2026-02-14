@@ -56,12 +56,19 @@ def main():
         "manifest": {
             "application": {
                 "bin_file": bin_name,
-                "dat_file": dat_name
+                "dat_file": dat_name,
+                "init_packet_data": {
+                    "application_version": 0xFFFFFFFF,
+                    "device_revision": 0xFFFF,
+                    "device_type": 0x0052,
+                    "firmware_crc16": fw_crc,
+                    "softdevice_req": [0xFFFE]
+                }
             }
         }
     }
 
-    with zipfile.ZipFile(out_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(out_path, 'w', zipfile.ZIP_STORED) as zf:
         zf.writestr(bin_name, firmware)
         zf.writestr(dat_name, init_packet)
         zf.writestr("manifest.json", json.dumps(manifest, indent=2))

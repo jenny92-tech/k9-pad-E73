@@ -1,9 +1,9 @@
 [keyboard]
-name = "k9-pad-E73"
-product_name = "k9-pad-E73"
+name = "k9-pad-e73-v1"
+product_name = "k9-pad-001"
 vendor_id = 0x4c4b
 product_id = 0x4643
-manufacturer = "k9"
+manufacturer = "jenny92"
 chip = "nrf52840"
 usb_enable = true
 

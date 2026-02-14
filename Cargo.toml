@@ -10,7 +10,7 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-rmk = { git = "https://github.com/jenny92-tech/rmk", rev = "aa8fc60b", features = ["async_matrix", "nrf52840_ble", "data_channel"] }
+rmk = { git = "https://github.com/jenny92-tech/rmk", rev = "aa8fc60b", features = ["async_matrix", "nrf52840_ble", "data_channel", "adafruit_bl"] }
 k9-datachannel-proto = { path = "k9-datachannel-proto" }
 embedded-graphics = "0.8"
 embedded-hal-async = "1.0"
@@ -26,7 +26,8 @@ nrf-mpsl = { git = "https://github.com/alexmoon/nrf-sdc", rev = "11d5c3c", featu
 ] }
 bt-hci = { version = "0.6", default-features = false, features = ["defmt"] }
 
-cortex-m = "0.7.7"
+embassy-usb = { version = "0.5" }
+cortex-m = { version = "0.7.7" }
 cortex-m-rt = "0.7.5"
 embassy-time = { version = "0.5", features = ["tick-hz-32_768", "defmt"] }
 embassy-sync = { version = "0.6", features = ["defmt"] }
@@ -73,6 +74,12 @@ test = true
 [[bin]]
 name = "k9-pad-e73"
 path = "src/main.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "usb-test"
+path = "src/bin/usb_test.rs"
 test = false
 bench = false
 

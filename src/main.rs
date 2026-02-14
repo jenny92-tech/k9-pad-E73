@@ -13,7 +13,6 @@ use panic_probe as _;
 
 mod battery;
 mod data_channel;
-mod integrity;
 mod mode;
 mod display;
 mod menu;
@@ -25,20 +24,13 @@ pub use mode::*;
 pub use display::run_display;
 pub use menu::*;
 
-/// Pre-init: DC/DC enable + firmware integrity check.
+/// Pre-init: enable DC/DC converter for low power.
 // SAFETY: Called by cortex-m-rt before main, before .data/.bss init.
-// All accessed data is in flash (.rodata) or hardware registers.
+// Only writes to hardware register (no RAM access needed).
 #[cortex_m_rt::pre_init]
 unsafe fn pre_init() {
-    // Enable DC/DC converter for low power
     const DCDCEN_ADDR: *mut u32 = 0x4000_0078 as *mut u32;
     core::ptr::write_volatile(DCDCEN_ADDR, 1);
-
-    // Firmware CRC32 integrity check — if corrupted (e.g. interrupted DFU),
-    // enter BLE OTA DFU mode instead of booting broken firmware.
-    if !integrity::verify_firmware() {
-        integrity::enter_dfu_mode();
-    }
 }
 
 // RMK keyboard macro
