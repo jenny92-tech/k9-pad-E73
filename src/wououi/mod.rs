@@ -70,6 +70,9 @@ extern "C" {
     /// Get live brightness value (0-100) — real-time slider value when ValWin is active
     fn WouoUI_K9Pad_GetLiveBrightness() -> u8;
 
+    /// Set brightness value (0-100) — sets both settings option and ValWin
+    fn WouoUI_K9Pad_SetBrightness(val: u8);
+
     /// Get BLE enabled state (1=on, 0=off)
     fn WouoUI_K9Pad_GetBleEnabled() -> u8;
 
@@ -234,6 +237,16 @@ impl WouoUI {
             return 80;
         }
         unsafe { WouoUI_K9Pad_GetLiveBrightness() }
+    }
+
+    /// Set brightness value (0-100) — sets both settings option and ValWin
+    pub fn set_brightness(&mut self, val: u8) {
+        if !self.initialized {
+            return;
+        }
+        // SAFETY: WouoUI_K9Pad_SetBrightness writes to settings_option_array[2].val
+        // and brightness_win.val. The `initialized` check guarantees these exist.
+        unsafe { WouoUI_K9Pad_SetBrightness(val) }
     }
 
     /// Get BLE enabled state

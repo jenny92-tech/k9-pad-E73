@@ -676,6 +676,16 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
     let mut wououi = WouoUI::new();
     wououi.init(MENU_FRAME_MS);
 
+    // 从 flash 恢复亮度设置
+    let saved_brightness = crate::flash_settings::flash_read_brightness();
+    wououi.set_brightness(saved_brightness);
+    {
+        const MIN_CONTRAST: u16 = 5;
+        let contrast = (MIN_CONTRAST + saved_brightness as u16 * (255 - MIN_CONTRAST) / 100) as u8;
+        display.set_contrast(contrast).await.ok();
+        defmt::info!("Restored brightness: {}% (contrast={})", saved_brightness, contrast);
+    }
+
     // 菜单状态跟踪
     let mut menu_active = false;
     let mut menu_idle_ticks: u16 = 0;
@@ -701,7 +711,8 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
     let mut current_mode = crate::mode::KeyboardMode::default();
     mode_tx.send(current_mode);
     let mut current_pad_index: u8 = 0;
-    let mut current_brightness: u8 = 80;
+    let mut current_brightness: u8 = saved_brightness;
+    let mut confirmed_brightness: u8 = saved_brightness;
     let mut last_contrast_write = Instant::now();
     const CONTRAST_MIN_INTERVAL: Duration = Duration::from_millis(100);
     let mut current_ble_enabled: bool = true;
@@ -906,6 +917,13 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
                     }
                     defmt::info!("Brightness: {}% (contrast={})", brightness, contrast);
                 }
+            }
+
+            // 持久化亮度：检测确认值变化（非实时滑块预览）写入 flash
+            let confirmed = wououi.get_brightness();
+            if confirmed != confirmed_brightness {
+                confirmed_brightness = confirmed;
+                crate::flash_settings::flash_write_brightness(confirmed);
             }
 
             // 检测 BLE 开关变化

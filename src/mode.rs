@@ -1,6 +1,6 @@
 // INPUT:  embassy_sync
 // OUTPUT: KeyboardMode enum, CURRENT_MODE watch
-// POS:    键盘模式管理（Layer 0/1/2），纯逻辑可测试
+// POS:    键盘模式管理（Layer 0/1/2/3/4），纯逻辑可测试
 // mode.rs - 键盘模式管理
 //
 // 设计原则：
@@ -19,13 +19,17 @@ pub enum KeyboardMode {
     PadA,  // Layer 0
     PadB,  // Layer 1
     PadC,  // Layer 2
+    PadD,  // Layer 3
+    PadE,  // Layer 4
 }
 
 impl KeyboardMode {
-    pub const ALL: [KeyboardMode; 3] = [
+    pub const ALL: [KeyboardMode; 5] = [
         KeyboardMode::PadA,
         KeyboardMode::PadB,
         KeyboardMode::PadC,
+        KeyboardMode::PadD,
+        KeyboardMode::PadE,
     ];
 
     pub fn name(&self) -> &'static str {
@@ -33,6 +37,8 @@ impl KeyboardMode {
             KeyboardMode::PadA => "Layer 0",
             KeyboardMode::PadB => "Layer 1",
             KeyboardMode::PadC => "Layer 2",
+            KeyboardMode::PadD => "Layer 3",
+            KeyboardMode::PadE => "Layer 4",
         }
     }
 
@@ -41,6 +47,8 @@ impl KeyboardMode {
             KeyboardMode::PadA => 0,
             KeyboardMode::PadB => 1,
             KeyboardMode::PadC => 2,
+            KeyboardMode::PadD => 3,
+            KeyboardMode::PadE => 4,
         }
     }
 
@@ -48,6 +56,8 @@ impl KeyboardMode {
         match layer {
             1 => Self::PadB,
             2 => Self::PadC,
+            3 => Self::PadD,
+            4 => Self::PadE,
             _ => Self::PadA,
         }
     }
@@ -56,15 +66,19 @@ impl KeyboardMode {
         match self {
             KeyboardMode::PadA => KeyboardMode::PadB,
             KeyboardMode::PadB => KeyboardMode::PadC,
-            KeyboardMode::PadC => KeyboardMode::PadA,
+            KeyboardMode::PadC => KeyboardMode::PadD,
+            KeyboardMode::PadD => KeyboardMode::PadE,
+            KeyboardMode::PadE => KeyboardMode::PadA,
         }
     }
 
     pub fn prev(&self) -> KeyboardMode {
         match self {
-            KeyboardMode::PadA => KeyboardMode::PadC,
+            KeyboardMode::PadA => KeyboardMode::PadE,
             KeyboardMode::PadB => KeyboardMode::PadA,
             KeyboardMode::PadC => KeyboardMode::PadB,
+            KeyboardMode::PadD => KeyboardMode::PadC,
+            KeyboardMode::PadE => KeyboardMode::PadD,
         }
     }
 }
@@ -87,10 +101,12 @@ mod tests {
 
     #[test]
     fn test_keyboard_mode_all() {
-        assert_eq!(KeyboardMode::ALL.len(), 3);
+        assert_eq!(KeyboardMode::ALL.len(), 5);
         assert_eq!(KeyboardMode::ALL[0], KeyboardMode::PadA);
         assert_eq!(KeyboardMode::ALL[1], KeyboardMode::PadB);
         assert_eq!(KeyboardMode::ALL[2], KeyboardMode::PadC);
+        assert_eq!(KeyboardMode::ALL[3], KeyboardMode::PadD);
+        assert_eq!(KeyboardMode::ALL[4], KeyboardMode::PadE);
     }
 
     #[test]
@@ -98,6 +114,8 @@ mod tests {
         assert_eq!(KeyboardMode::PadA.name(), "Layer 0");
         assert_eq!(KeyboardMode::PadB.name(), "Layer 1");
         assert_eq!(KeyboardMode::PadC.name(), "Layer 2");
+        assert_eq!(KeyboardMode::PadD.name(), "Layer 3");
+        assert_eq!(KeyboardMode::PadE.name(), "Layer 4");
     }
 
     #[test]
@@ -105,6 +123,8 @@ mod tests {
         assert_eq!(KeyboardMode::PadA.layer_index(), 0);
         assert_eq!(KeyboardMode::PadB.layer_index(), 1);
         assert_eq!(KeyboardMode::PadC.layer_index(), 2);
+        assert_eq!(KeyboardMode::PadD.layer_index(), 3);
+        assert_eq!(KeyboardMode::PadE.layer_index(), 4);
     }
 
     #[test]
@@ -112,6 +132,8 @@ mod tests {
         assert_eq!(KeyboardMode::from_layer(0), KeyboardMode::PadA);
         assert_eq!(KeyboardMode::from_layer(1), KeyboardMode::PadB);
         assert_eq!(KeyboardMode::from_layer(2), KeyboardMode::PadC);
+        assert_eq!(KeyboardMode::from_layer(3), KeyboardMode::PadD);
+        assert_eq!(KeyboardMode::from_layer(4), KeyboardMode::PadE);
         assert_eq!(KeyboardMode::from_layer(255), KeyboardMode::PadA);
     }
 
@@ -119,20 +141,24 @@ mod tests {
     fn test_keyboard_mode_next() {
         assert_eq!(KeyboardMode::PadA.next(), KeyboardMode::PadB);
         assert_eq!(KeyboardMode::PadB.next(), KeyboardMode::PadC);
-        assert_eq!(KeyboardMode::PadC.next(), KeyboardMode::PadA);
+        assert_eq!(KeyboardMode::PadC.next(), KeyboardMode::PadD);
+        assert_eq!(KeyboardMode::PadD.next(), KeyboardMode::PadE);
+        assert_eq!(KeyboardMode::PadE.next(), KeyboardMode::PadA);
     }
 
     #[test]
     fn test_keyboard_mode_prev() {
-        assert_eq!(KeyboardMode::PadA.prev(), KeyboardMode::PadC);
+        assert_eq!(KeyboardMode::PadA.prev(), KeyboardMode::PadE);
         assert_eq!(KeyboardMode::PadB.prev(), KeyboardMode::PadA);
         assert_eq!(KeyboardMode::PadC.prev(), KeyboardMode::PadB);
+        assert_eq!(KeyboardMode::PadD.prev(), KeyboardMode::PadC);
+        assert_eq!(KeyboardMode::PadE.prev(), KeyboardMode::PadD);
     }
 
     #[test]
     fn test_keyboard_mode_next_cycle() {
         let mut mode = KeyboardMode::PadA;
-        for _ in 0..3 {
+        for _ in 0..5 {
             mode = mode.next();
         }
         assert_eq!(mode, KeyboardMode::PadA);
@@ -141,7 +167,7 @@ mod tests {
     #[test]
     fn test_keyboard_mode_prev_cycle() {
         let mut mode = KeyboardMode::PadA;
-        for _ in 0..3 {
+        for _ in 0..5 {
             mode = mode.prev();
         }
         assert_eq!(mode, KeyboardMode::PadA);

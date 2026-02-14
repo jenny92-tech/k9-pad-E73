@@ -27,6 +27,7 @@
 | 电池管理 | `battery.rs` | ADC 采样、电量计算、BATTERY_STATUS Watch |
 | 键码定义 | `keyboard.rs` | KeyCode 枚举（占位，对接 RMK） |
 | 模式管理 | `mode.rs` | KeyboardMode 枚举 + CURRENT_MODE Watch |
+| Flash 设置 | `flash_settings.rs` | 亮度等持久化设置（NVMC 读写 0xF3000 页） |
 | 完整性校验 | `integrity.rs` | CRC32 启动校验，损坏则进 DFU |
 | 菜单系统 | `menu/` | WouoUI 菜单输入控制 + 状态管理 |
 | OLED UI 框架 | `wououi/` | WouoUI C 库 FFI 绑定 |

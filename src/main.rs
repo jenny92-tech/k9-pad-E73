@@ -5,7 +5,7 @@
 #![no_main]
 
 // k9-pad-E73 Firmware - 多层键盘
-// 模式: Pad A / Pad B / Pad C (对应 RMK Layer 0/1/2)
+// 模式: Pad A / Pad B / Pad C / Pad D / Pad E (对应 RMK Layer 0/1/2/3/4)
 
 use rmk::macros::rmk_keyboard;
 
@@ -13,6 +13,7 @@ use panic_probe as _;
 
 mod battery;
 mod data_channel;
+mod flash_settings;
 mod mode;
 mod display;
 mod menu;

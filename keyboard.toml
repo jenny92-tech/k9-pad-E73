@@ -20,7 +20,7 @@ debouncer = "default"
 [layout]
 rows = 3
 cols = 4
-layers = 3
+layers = 5
 # 10-key mapping + 1 encoder
 # Row0: [_, _, U2, SW1]
 # Row1: [SW2, SW3, SW4, SW5]
@@ -44,9 +44,23 @@ keymap = [
     ["Kc2", "Kc3", "Kc4", "Kc5"],
     ["Kc6", "Kc7", "Kc8", "Kc9"],
   ],
+  # Layer 3 - Pad D
+  [
+    ["_", "_", "Kc0", "Kc1"],
+    ["Kc2", "Kc3", "Kc4", "Kc5"],
+    ["Kc6", "Kc7", "Kc8", "Kc9"],
+  ],
+  # Layer 4 - Pad E
+  [
+    ["_", "_", "Kc0", "Kc1"],
+    ["Kc2", "Kc3", "Kc4", "Kc5"],
+    ["Kc6", "Kc7", "Kc8", "Kc9"],
+  ],
 ]
 # 编码器映射: [顺时针, 逆时针] - 非菜单模式下发送音量键
 encoder_map = [
+  [["AudioVolUp", "AudioVolDown"]],
+  [["AudioVolUp", "AudioVolDown"]],
   [["AudioVolUp", "AudioVolDown"]],
   [["AudioVolUp", "AudioVolDown"]],
   [["AudioVolUp", "AudioVolDown"]],
