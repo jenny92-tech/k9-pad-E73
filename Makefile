@@ -127,7 +127,13 @@ reset:
 	$(PROBE) reset --chip $(CHIP)
 
 clean:
-	cargo clean
+	@# 清理本项目 + RMK 依赖的编译缓存（含 proc-macro）
+	rm -rf target/$(TARGET)/release/.fingerprint/k9-pad-e73-* \
+	       target/$(TARGET)/release/.fingerprint/rmk-* \
+	       target/$(TARGET)/release/deps/librmk-* \
+	       target/$(TARGET)/release/deps/k9_pad_e73-* \
+	       target/release/.fingerprint/rmk-macro-* \
+	       target/release/deps/librmk_macro-*
 	rm -f $(BIN) $(HEX) $(UF2) $(DFU_ZIP)
 
 help:
