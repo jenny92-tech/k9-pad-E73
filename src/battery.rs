@@ -19,17 +19,51 @@ pub struct BatteryStatus {
 // 全局状态，供显示任务读取
 pub static BATTERY_STATUS: Watch<ThreadModeRawMutex, BatteryStatus, 1> = Watch::new();
 
-/// ADC 采样计算电压
-/// 实际分压: R8=820kΩ (VBAT→POWER_PIN), R10=2MΩ (POWER_PIN→GND)
-/// V_adc = VBAT × 2000/2820, 即 VBAT = V_adc × 1.41
+/// 锂电池放电曲线查找表（电压 mV → 电量百分比）
+/// 基于典型 LiPo 单芯电池轻负载放电特性，按电压降序排列
+/// 锂电池放电曲线高度非线性：3.9V~3.7V 是长平台区（容量主体），
+/// 两端（满充/接近耗尽）电压变化快但容量变化小。
+const DISCHARGE_CURVE: [(u16, u8); 12] = [
+    (4200, 100),
+    (4060, 90),
+    (3980, 80),
+    (3920, 70),
+    (3870, 60),
+    (3830, 50),
+    (3790, 40),
+    (3750, 30),
+    (3710, 20),
+    (3670, 10),
+    (3500, 5),
+    (3300, 0),
+];
+
+/// 根据电压计算电量百分比（查找表 + 线性插值）
 pub fn calc_percentage(voltage_mv: u16) -> u8 {
-    // 锂电池：4.2V=100%, 3.3V=0%
-    const MAX_MV: u16 = 4200;
-    const MIN_MV: u16 = 3300;
-    
-    if voltage_mv >= MAX_MV { return 100; }
-    if voltage_mv <= MIN_MV { return 0; }
-    ((voltage_mv - MIN_MV) as u32 * 100 / (MAX_MV - MIN_MV) as u32) as u8
+    // 边界检查
+    if voltage_mv >= DISCHARGE_CURVE[0].0 {
+        return DISCHARGE_CURVE[0].1;
+    }
+    let last = DISCHARGE_CURVE.len() - 1;
+    if voltage_mv <= DISCHARGE_CURVE[last].0 {
+        return DISCHARGE_CURVE[last].1;
+    }
+
+    // 在相邻节点间线性插值
+    let mut i = 0;
+    while i < DISCHARGE_CURVE.len() - 1 {
+        let (v_high, p_high) = DISCHARGE_CURVE[i];
+        let (v_low, p_low) = DISCHARGE_CURVE[i + 1];
+        if voltage_mv >= v_low {
+            let v_range = (v_high - v_low) as u32;
+            let p_range = (p_high - p_low) as u32;
+            let v_offset = (voltage_mv - v_low) as u32;
+            return (p_low as u32 + v_offset * p_range / v_range) as u8;
+        }
+        i += 1;
+    }
+
+    0
 }
 
 /// 硬件连接（来自你发的原理图截图）

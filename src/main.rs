@@ -49,7 +49,8 @@ mod keyboard {
         // Initialize display I2C
         static TWI_BUF: ::static_cell::StaticCell<[u8; 256]> = ::static_cell::StaticCell::new();
         let twi_buf = TWI_BUF.init([0u8; 256]);
-        let twi_config = ::embassy_nrf::twim::Config::default();
+        let mut twi_config = ::embassy_nrf::twim::Config::default();
+        twi_config.frequency = ::embassy_nrf::twim::Frequency::K400;
         let twi = ::embassy_nrf::twim::Twim::new(
             p.TWISPI0, Irqs, p.P0_08, p.P1_09, twi_config, twi_buf
         );

@@ -373,6 +373,10 @@ void WouoUI_ListPageIndicatorCtrl(PageAddr page_addr)
     p_cur_ui->indicator.y.pos_tgt = lp->ind_y_tgt;
     p_cur_ui->indicator.w.pos_tgt = p_cur_ui->lp_var.indicator_w_temp;
     p_cur_ui->indicator.h.pos_tgt = LIST_LINE_H;
+    // Clamp indicator width to target to prevent XOR overlap on tail content during scroll
+    if(p_cur_ui->indicator.w.pos_cur > p_cur_ui->lp_var.indicator_w_temp) {
+        p_cur_ui->indicator.w.pos_cur = p_cur_ui->lp_var.indicator_w_temp;
+    }
     WouoUI_GraphSetPenColor(2); // 反色绘制
     WouoUI_CanvasDrawRBox(&(p_cur_ui->w_all), p_cur_ui->indicator.x.pos_cur, p_cur_ui->indicator.y.pos_cur,
                              p_cur_ui->indicator.w.pos_cur, p_cur_ui->indicator.h.pos_cur, LIST_IND_BOX_R);
