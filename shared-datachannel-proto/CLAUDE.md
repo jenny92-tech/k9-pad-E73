@@ -1,10 +1,10 @@
-# BLE 数据通道协议
+# Shared 数据通道协议
 
-> 主机与键盘之间的 BLE GATT 数据通道协议定义
+> 主机与键盘之间的 BLE GATT 数据通道协议定义（`shared-datachannel-proto`）
 
 ## 地位
 
-独立 `no_std` crate，被固件和主机程序共同依赖。
+独立 `no_std` crate，位于 monorepo 根目录，被固件（`k9-pad-firmware`）和主机（`k9-host-lib`、`k9-host-app`）共同依赖。
 
 ## 逻辑
 

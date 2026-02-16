@@ -1,6 +1,38 @@
-# K9-Pad E73
+# K9-Pad Monorepo
 
-> nRF52840 BLE 机械键盘固件，Embassy 异步运行时 + WouoUI OLED 动画菜单
+> nRF52840 BLE 机械键盘固件 + 桌面主机应用，Cargo workspace 组织
+
+---
+
+## 项目结构
+
+```
+k9-pad-E73-master/                     (monorepo 根目录)
+├── Cargo.toml                          ← workspace: shared + host crates
+├── rust-toolchain.toml
+├── .gitignore
+├── CLAUDE.md                           ← 本文件
+│
+├── shared-datachannel-proto/           ← 共享协议 crate（no_std）
+├── k9-host-lib/                        ← 主机通信库（BLE/USB transport）
+├── k9-host-app/                        ← GPUI 桌面应用
+│
+├── k9-pad-firmware/                    ← 固件（exclude 出 workspace，独立构建）
+│   ├── Cargo.toml
+│   ├── .cargo/config.toml
+│   ├── build.rs, memory.x, keyboard.toml, vial.json
+│   ├── Makefile, Makefile.toml
+│   ├── src/
+│   ├── tests/
+│   ├── tools/
+│   ├── docs/
+│   └── scripts/
+│
+└── .cargo/config.toml                  ← workspace 级（无 target 设置）
+```
+
+**Workspace 模式**：`shared-datachannel-proto`、`k9-host-lib`、`k9-host-app` 在 workspace 内；
+`k9-pad-firmware` 被 `exclude`，使用独立 `.cargo/config.toml`（ARM target）。
 
 ---
 
@@ -38,21 +70,42 @@
 
 ## Build & Dev Commands
 
+### 固件（在 `k9-pad-firmware/` 目录下）
+
 ```bash
+cd k9-pad-firmware
+
 # 构建 release
 cargo make build
 
-# 生成 hex 文件
+# 生成 hex/uf2
 cargo make objcopy
-
-# 生成 uf2 固件
 cargo make uf2
 
-# 运行测试（host 端）
+# 运行固件测试
 cargo test --lib
 
-# 检查编译（不生成固件）
+# 检查编译
 cargo check
+
+# DFU 打包
+make dfu
+
+# SWD 烧录
+make flash
+```
+
+### 主机侧（在根目录）
+
+```bash
+# 编译全部 host crates
+cargo build
+
+# 运行 host app
+cargo run -p k9-host-app
+
+# 测试共享协议
+cargo test -p shared-datachannel-proto
 ```
 
 ---
@@ -69,12 +122,14 @@ cargo check
 
 - 提交信息格式：`type(scope): description`
 - type 类型：feat, fix, docs, style, refactor, test, chore
+- scope 范围：firmware, host, proto, repo
 
 ---
 
 ## Testing
 
-- **MUST** 推送前运行测试：`cargo test --lib`
+- **MUST** 推送前运行固件测试：`cd k9-pad-firmware && cargo test --lib`
+- **MUST** 推送前运行 host 测试：`cargo test`（根目录）
 - 嵌入式相关代码使用 `#[cfg(test)]` 隔离测试
 
 ---
@@ -83,11 +138,12 @@ cargo check
 
 - **SHOULD** 文件不超过 500 行
 - **MUST** 避免使用 `unsafe` 除非绝对必要，且必须添加 `// SAFETY:` 注释
-- **SHOULD** 使用 `defmt` 进行日志输出
+- **SHOULD** 固件使用 `defmt` 进行日志输出
+- **SHOULD** 主机使用 `log` + `env_logger` 进行日志输出
 
 ---
 
-## Embedded-Specific Rules
+## Embedded-Specific Rules（仅 k9-pad-firmware）
 
 - **MUST** 注意 `no_std` 环境限制
 - **MUST** 注意内存布局（`memory.x`）
@@ -107,9 +163,9 @@ cargo check
 ## Agent Notes
 
 - 回答问题时，先验证代码再回答，不要猜测
-- 这是 `no_std` 嵌入式项目，不能使用标准库
-- 目标芯片是 nRF52840（ARM Cortex-M4F），使用 Embassy 异步运行时
-- 构建工具链：`thumbv7em-none-eabihf`
+- 固件是 `no_std` 嵌入式项目，目标芯片 nRF52840（ARM Cortex-M4F），Embassy 异步运行时
+- 主机应用使用 GPUI 框架，标准 Rust 环境
+- 共享协议 crate 兼容 `no_std` 和 `std`
 
 ---
 
@@ -117,10 +173,7 @@ cargo check
 
 | 名称 | 文件/子目录 | 职责 |
 |------|------------|------|
-| 固件源码 | `src/` | 主固件代码（显示、菜单、BLE、电池等） |
-| 数据通道协议 | `k9-datachannel-proto/` | BLE 数据通道协议 crate（no_std） |
-| 构建工具 | `tools/` | DFU 包生成、CRC 补丁等构建辅助 |
-| 构建脚本 | `build.rs` | Cargo 构建配置（WouoUI C 编译、vial 配置） |
-| 键盘配置 | `keyboard.toml` | RMK 键位映射定义 |
-| 内存布局 | `memory.x` | Flash/RAM 分区定义 |
-| 文档 | `docs/` | 踩坑文档、设计文档 |
+| 固件 | `k9-pad-firmware/` | nRF52840 BLE 键盘固件（显示、菜单、BLE、电池等） |
+| 共享协议 | `shared-datachannel-proto/` | BLE 数据通道协议 crate（no_std 兼容） |
+| 主机通信库 | `k9-host-lib/` | BLE/USB transport 抽象 + K9Client |
+| 桌面应用 | `k9-host-app/` | GPUI 桌面管理应用（providers: time/volume/bilibili） |
