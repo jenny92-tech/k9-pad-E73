@@ -171,6 +171,7 @@ pub mod function_bits {
     pub const VOLUME: u16 = 1 << 1;
     pub const SUBSCRIBERS: u16 = 1 << 2;
     pub const TIME: u16 = 1 << 3;
+    pub const AI_QUOTA: u16 = 1 << 4;
 }
 
 impl PadConfig {

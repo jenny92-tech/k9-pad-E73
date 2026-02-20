@@ -3200,8 +3200,12 @@ name = "k9-host-lib"
 version = "0.1.0"
 dependencies = [
  "btleplug",
+ "dirs 5.0.1",
  "futures",
  "log",
+ "reqwest",
+ "serde",
+ "serde_json",
  "serialport",
  "shared-datachannel-proto",
  "thiserror 1.0.69",

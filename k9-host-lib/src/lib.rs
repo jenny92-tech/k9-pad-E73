@@ -8,3 +8,6 @@ pub use transport::{Transport, TransportError};
 pub use transport::ble::BleTransport;
 #[cfg(feature = "usb")]
 pub use transport::usb::UsbTransport;
+
+#[cfg(feature = "ai-quota")]
+pub mod ai_quota;

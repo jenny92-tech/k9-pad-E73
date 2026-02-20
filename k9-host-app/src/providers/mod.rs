@@ -1,6 +1,7 @@
 // INPUT:  tokio, k9-datachannel-proto
 // OUTPUT: Provider trait + time/volume/bilibili providers
 // POS:    数据提供者模块，从 k9-host-cli 迁移
+pub mod ai_quota;
 pub mod bilibili;
 pub mod time;
 pub mod volume;

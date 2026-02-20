@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 gpui = "0.2"
-k9-host-lib = { path = "../k9-host-lib" }
+k9-host-lib = { path = "../k9-host-lib", features = ["ai-quota"] }
 k9-datachannel-proto = { package = "shared-datachannel-proto", path = "../shared-datachannel-proto", features = ["std"] }
 tokio = { version = "1", features = ["full"] }
 log = "0.4"
