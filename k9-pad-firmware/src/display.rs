@@ -28,7 +28,7 @@ use crate::mode::CURRENT_MODE;
 use crate::battery::BATTERY_STATUS;
 use crate::wououi::{WouoUI, WououiInput, SCREEN_WIDTH, SCREEN_HEIGHT};
 use rmk::ble::BleState;
-use rmk::event::{BleStateChangeEvent, SubscribableEvent, EventSubscriber};
+use rmk::event::{BleStateChangeEvent, SubscribableEvent};
 
 // SH1107 I2C 地址
 const SH1107_ADDR: u8 = 0x3C;
@@ -734,25 +734,24 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
     const CONTRAST_MIN_INTERVAL: Duration = Duration::from_millis(100);
     let mut current_ble_enabled: bool = true;
     let mut current_user: u8 = 0;
-    let mut battery_status = crate::battery::BatteryStatus::default();
-
     // BLE 连接状态：通过 RMK 事件系统订阅（替代有 bug 的 get_connection_state 轮询）
     let mut ble_sub = BleStateChangeEvent::subscriber();
     let mut ble_connected = false;
 
     // 首次读取电池状态（避免启动后 5 秒内显示 0%）
-    {
+    let mut battery_status = {
         let voltage = read_battery_voltage_mv();
         let percentage = crate::battery::calc_percentage(voltage);
         let is_charging = unsafe { read_charge_pin() };
-        battery_status = crate::battery::BatteryStatus {
+        let status = crate::battery::BatteryStatus {
             voltage_mv: voltage,
             percentage,
             is_charging,
         };
-        battery_status_tx.send(battery_status);
+        battery_status_tx.send(status);
         defmt::info!("Battery init: {}mV {}% charging={}", voltage, percentage, is_charging);
-    }
+        status
+    };
 
     // 电池读取计时
     let mut last_battery_read = Instant::now();

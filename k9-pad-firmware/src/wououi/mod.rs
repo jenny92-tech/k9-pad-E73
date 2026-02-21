@@ -13,6 +13,7 @@ pub const SCREEN_HEIGHT: usize = 64;
 /// Input types for WouoUI (from WouoUI_port.h)
 #[repr(u8)]
 #[derive(Clone, Copy, Debug)]
+#[allow(dead_code)]
 pub enum WououiInput {
     None = 0,
     Up = 1,
@@ -35,6 +36,7 @@ extern "C" {
     fn WouoUI_PortSendInput(input_type: u8);
 
     /// Check if menu is active
+    #[allow(dead_code)]
     fn WouoUI_PortIsMenuActive() -> u8;
 
     /// Enter menu mode
@@ -62,6 +64,7 @@ extern "C" {
     fn WouoUI_K9Pad_GetSelectedPad() -> u8;
 
     /// Set selected pad (for syncing menu state from external source)
+    #[allow(dead_code)]
     fn WouoUI_K9Pad_SetSelectedPad(pad: u8);
 
     /// Get brightness value (0-100)
@@ -161,6 +164,7 @@ impl WouoUI {
     }
 
     /// Check if menu is currently active
+    #[allow(dead_code)]
     pub fn is_menu_active(&self) -> bool {
         if !self.initialized {
             return false;
@@ -216,6 +220,7 @@ impl WouoUI {
     }
 
     /// Set the selected pad (sync menu state from Rust side)
+    #[allow(dead_code)]
     pub fn set_selected_pad(&self, pad: u8) {
         if !self.initialized {
             return;

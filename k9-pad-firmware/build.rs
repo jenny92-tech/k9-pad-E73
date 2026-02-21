@@ -91,6 +91,7 @@ fn compile_wououi() {
         .flag("-fno-asynchronous-unwind-tables")
         .flag("-ffreestanding")
         .flag("-nostdinc")
+        .flag("-w") // Suppress warnings from third-party C library
         .define("WOUOUI_EMBEDDED", None)
         .include("src/wououi/csrc")
         .file("src/wououi/csrc/WouoUI.c")
