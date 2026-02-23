@@ -123,14 +123,13 @@ pub fn read_codex_credentials() -> Result<CodexTokens, AiQuotaError> {
         )));
     }
 
-    let data = std::fs::read_to_string(&auth_path).map_err(|e| {
-        AiQuotaError::CredentialNotFound(format!("{}: {e}", auth_path.display()))
-    })?;
+    let data = std::fs::read_to_string(&auth_path)
+        .map_err(|e| AiQuotaError::CredentialNotFound(format!("{}: {e}", auth_path.display())))?;
 
     let parsed: CodexAuthFile = serde_json::from_str(&data)
         .map_err(|e| AiQuotaError::CredentialParse(format!("auth.json: {e}")))?;
 
-    parsed.tokens.ok_or_else(|| {
-        AiQuotaError::CredentialParse("auth.json: missing 'tokens' field".into())
-    })
+    parsed
+        .tokens
+        .ok_or_else(|| AiQuotaError::CredentialParse("auth.json: missing 'tokens' field".into()))
 }

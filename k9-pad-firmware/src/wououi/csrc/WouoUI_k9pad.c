@@ -1,14 +1,14 @@
 // INPUT:  WouoUI.h
-// OUTPUT: K9Pad_MenuInit() — 8 主菜单项 + Layer/User/Settings/About 子页面 + SetBrightness + ScreenTimeout + QuickMenu
+// OUTPUT: K9Pad_MenuInit() — NUM_LAYERS 主菜单项 + Features/User/Settings/About 子页面 + SetBrightness + ScreenTimeout + QuickMenu
 // POS:    K9-Pad 专用菜单树定义，被 WouoUI_port.c 调用
 /**
  * WouoUI K9-Pad Menu Configuration
  *
- * TitlePage main menu (8 items):
- *   Layer 0 / Layer 1 / Layer 2 / Layer 3 / Layer 4 / User / Settings / About
+ * TitlePage main menu (NUM_LAYERS + 4 items):
+ *   Layer 0..N-1 (direct switch) / User / Settings / Features / About
  *
  * Sub-pages:
- *   Layer 0/1/2/3/4: "Enable" action + Data Ch / Volume / Subs / Time checkboxes
+ *   Features: tree menu → Layer 0..N-1 checkbox sub-pages (Volume/Subs/Time)
  *   User: User A/B/C radio (BLE multi-device) + Clear Bond
  *   Settings: Brightness slider + Screen Off selector + Quick Menu + DFU Mode + To Bootloader
  *   About: firmware info
@@ -16,13 +16,14 @@
 
 #include "WouoUI.h"
 
+//--------Layer 数量 — 唯一真相源 (C 侧)
+// SYNC: 必须与 mode.rs NUM_LAYERS 保持一致
+#define NUM_LAYERS 5
+
 //--------定义页面对象
 static TitlePage main_page;
-static ListPage pad_a_page;
-static ListPage pad_b_page;
-static ListPage pad_c_page;
-static ListPage pad_d_page;
-static ListPage pad_e_page;
+static ListPage pad_pages[NUM_LAYERS];
+static ListPage features_page;
 static ListPage user_page;
 static ListPage settings_page;
 static ListPage about_page;
@@ -34,7 +35,7 @@ static ListWin screen_timeout_win;
 //--------DFU/Bootloader 确认弹窗的 pending action (1=DFU, 2=Bootloader)
 static uint8_t pending_dfu_action = 0;
 
-//--------当前选中的 Layer (0-4)
+//--------当前选中的 Layer (0..NUM_LAYERS-1)
 static uint8_t g_selected_pad = 0;
 
 //--------菜单退出请求标志 (由回调设置，Rust 侧轮询)
@@ -52,65 +53,68 @@ static char* screen_timeout_options[5] = {
 };
 
 
-//--------页面选项数量
-#define MAIN_PAGE_NUM       8
-#define PAD_PAGE_NUM        5
+//--------页面选项数量 (由 NUM_LAYERS 派生)
+#define MAIN_PAGE_NUM       (NUM_LAYERS + 4)  // layers + User + Settings + Features + About
+#define PAD_PAGE_NUM        4                  // 标题 + Volume + Subs + Time (不随 layer 数变)
+#define FEATURES_PAGE_NUM   (NUM_LAYERS + 1)   // 标题 + N 个 Layer 入口
 #define USER_PAGE_NUM       5
 #define SETTINGS_PAGE_NUM   6
 #define ABOUT_PAGE_NUM      4
 
-//--------主菜单选项
-static Option main_option_array[MAIN_PAGE_NUM] = {
-    {.text = (char *)"+ Layer 0"},
-    {.text = (char *)"+ Layer 1"},
-    {.text = (char *)"+ Layer 2"},
-    {.text = (char *)"+ Layer 3"},
-    {.text = (char *)"+ Layer 4"},
-    {.text = (char *)"+ User"},
-    {.text = (char *)"+ Settings"},
-    {.text = (char *)"+ About"}
+//--------文本查找表 (gen_layer_data.py 生成，与 NUM_LAYERS 同步)
+static char* main_layer_texts[NUM_LAYERS] = {
+    (char*)"+ Layer 0", (char*)"+ Layer 1", (char*)"+ Layer 2",
+    (char*)"+ Layer 3", (char*)"+ Layer 4"
 };
 
-// 主菜单图标 (30x30) - 8 icons
-// Layer 0/1/2/3/4: digit 0/1/2/3/4, User: Home icon, Settings: BLE icon, About: Info icon
-static Icon main_icon_array[MAIN_PAGE_NUM] = {
-    // [0] Layer 0 - Rounded rect + digit "0"
-    [0] = {
+//--------主菜单选项 (WouoUI_UserInit 中填充)
+static Option main_option_array[MAIN_PAGE_NUM];
+
+//--------数字图标查找表 (30x30, gen_layer_data.py 生成，与 NUM_LAYERS 同步)
+// 每个图标 120 bytes (30×4 rows), 运行时由 WouoUI_UserInit 复制到 main_icon_storage
+// 增加 Layer 时用 tools/gen_layer_data.py 重新生成此数组
+static const Icon layer_digit_icons[NUM_LAYERS] = {
+    // [0] digit "0"
+    {
         0x00, 0x00, 0xF8, 0xFC, 0xFE, 0x0E, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x0E, 0xFE, 0xFC, 0xF8, 0x00, 0x00, 0x00,
         0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0xFE, 0xFF, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0xFF, 0xFE, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
         0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x7F, 0xFF, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xFF, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x1F, 0x3F, 0x7F, 0x70, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x70, 0x7F, 0x3F, 0x1F, 0x00, 0x00, 0x00
     },
-    // [1] Layer 1 - Rounded rect + digit "1"
-    [1] = {
+    // [1] digit "1"
+    {
         0x00, 0x00, 0xF8, 0xFC, 0xFE, 0x0E, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x0E, 0xFE, 0xFC, 0xF8, 0x00, 0x00, 0x00,
         0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x0C, 0x0E, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
         0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC0, 0xC0, 0xC0, 0xFF, 0xFF, 0xC0, 0xC0, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x1F, 0x3F, 0x7F, 0x70, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x70, 0x7F, 0x3F, 0x1F, 0x00, 0x00, 0x00
     },
-    // [2] Layer 2 - Rounded rect + digit "2"
-    [2] = {
+    // [2] digit "2"
+    {
         0x00, 0x00, 0xF8, 0xFC, 0xFE, 0x0E, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x0E, 0xFE, 0xFC, 0xF8, 0x00, 0x00, 0x00,
         0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x06, 0x07, 0x03, 0x83, 0x83, 0xC3, 0xC3, 0xE3, 0x7F, 0x3E, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
         0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0xFE, 0xFF, 0xC3, 0xC3, 0xC1, 0xC1, 0xC0, 0xC0, 0xC0, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x1F, 0x3F, 0x7F, 0x70, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x70, 0x7F, 0x3F, 0x1F, 0x00, 0x00, 0x00
     },
-    // [3] Layer 3 - Rounded rect + digit "3"
-    [3] = {
+    // [3] digit "3"
+    {
         0x00, 0x00, 0xF8, 0xFC, 0xFE, 0x0E, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x0E, 0xFE, 0xFC, 0xF8, 0x00, 0x00, 0x00,
         0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x06, 0x07, 0x03, 0x03, 0xC3, 0xC3, 0xC3, 0xC3, 0xFF, 0x3E, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
         0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x60, 0xE0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xFF, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x1F, 0x3F, 0x7F, 0x70, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x70, 0x7F, 0x3F, 0x1F, 0x00, 0x00, 0x00
     },
-    // [4] Layer 4 - Rounded rect + digit "4"
-    [4] = {
+    // [4] digit "4"
+    {
         0x00, 0x00, 0xF8, 0xFC, 0xFE, 0x0E, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x0E, 0xFE, 0xFC, 0xF8, 0x00, 0x00, 0x00,
         0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0xC0, 0xE0, 0x30, 0x18, 0x0C, 0xFE, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
         0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x03, 0x03, 0x03, 0x03, 0x03, 0xFF, 0xFF, 0xFF, 0x03, 0x03, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x1F, 0x3F, 0x7F, 0x70, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x70, 0x7F, 0x3F, 0x1F, 0x00, 0x00, 0x00
-    },
-    // [5] User - Home icon (person's home)
-    [5] = {
+    }
+};
+
+//--------固定菜单项图标 (User, Settings, Features, About)
+static const Icon fixed_icons[4] = {
+    // [0] User - Home icon
+    {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0xC0, 0xE0, 0xF0, 0xF8, 0xFC, 0xFE, 0xFF, 0xFE, 0xFC,
         0xFC, 0xFE, 0xFF, 0xFE, 0xFC, 0xF8, 0xF0, 0xE0, 0xC0, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0xF0, 0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
@@ -120,15 +124,22 @@ static Icon main_icon_array[MAIN_PAGE_NUM] = {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x03, 0x07, 0x0F, 0x1F, 0x1C, 0x1C, 0x1C, 0x1C, 0x1C,
         0x1C, 0x1C, 0x1C, 0x1C, 0x1C, 0x1F, 0x0F, 0x07, 0x03, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00
     },
-    // [6] Settings - Gear icon
-    [6] = {
+    // [1] Settings - Gear icon
+    {
         0x00, 0x00, 0x00, 0x00, 0x80, 0xE0, 0xC0, 0x80, 0x00, 0x00, 0x80, 0x8C, 0xFC, 0xFC, 0xFC, 0xFC, 0xFC, 0xFC, 0x8C, 0x80, 0x00, 0x00, 0x80, 0xC0, 0xE0, 0x80, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x0C, 0x1F, 0x1F, 0x1F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x3F, 0x0F, 0x0F, 0x07, 0x07, 0x0F, 0x0F, 0x3F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x1F, 0x1F, 0x1F, 0x0C, 0x00, 0x00,
         0x00, 0x00, 0x0C, 0x3E, 0x7E, 0xFE, 0xFF, 0x7F, 0x3F, 0x3F, 0x7F, 0x7F, 0xFC, 0xFC, 0xF8, 0xF8, 0xFC, 0xFC, 0x7F, 0x7F, 0x3F, 0x3F, 0x7F, 0xFF, 0xFE, 0x7E, 0x3E, 0x0C, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00
     },
-    // [7] About - Info icon
-    [7] = {
+    // [2] Features - Checklist icon
+    {
+        0x00, 0x00, 0xF8, 0xFC, 0xFE, 0x0E, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x0E, 0xFE, 0xFC, 0xF8, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x18, 0x0C, 0x86, 0xC0, 0x60, 0x00, 0xFE, 0xFE, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x18, 0x0C, 0x86, 0xC0, 0x60, 0x00, 0xFE, 0xFE, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x1F, 0x3F, 0x7F, 0x70, 0x60, 0x60, 0x60, 0x61, 0x63, 0x66, 0x60, 0x67, 0x67, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x70, 0x7F, 0x3F, 0x1F, 0x00, 0x00, 0x00
+    },
+    // [3] About - Info icon
+    {
         0x00, 0x00, 0x80, 0xE0, 0xF0, 0xF8, 0xFC, 0x3C, 0x1E, 0x0E, 0x0E, 0x06, 0x06, 0x06, 0x06,
         0x06, 0x06, 0x06, 0x06, 0x0E, 0x0E, 0x1E, 0x3C, 0xFC, 0xF8, 0xF0, 0xE0, 0x80, 0x00, 0x00,
         0x00, 0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0x01, 0x00, 0x00, 0x00, 0xFC, 0xFC, 0xFC, 0xFC, 0x00,
@@ -140,50 +151,25 @@ static Icon main_icon_array[MAIN_PAGE_NUM] = {
     }
 };
 
-//--------Layer 0 子页面选项
-static Option pad_a_option_array[PAD_PAGE_NUM] = {
-    {.text = (char *)"- Layer 0"},
-    {.text = (char *)"! Enable"},
-    {.text = (char *)"@ Volume",  .val = 0},
-    {.text = (char *)"@ Subs",    .val = 0},
-    {.text = (char *)"@ Time",    .val = 0}
+//--------主菜单图标 (WouoUI_UserInit 中填充)
+// 声明为 uint8_t 以支持运行时 memcpy，传入 TitlePageInit 时强转为 Icon*
+static uint8_t main_icon_storage[MAIN_PAGE_NUM][ICON_BUFFSIZE];
+
+//--------Layer 子页面选项文本查找表 (gen_layer_data.py 生成，与 NUM_LAYERS 同步)
+static char* pad_titles[NUM_LAYERS] = {
+    (char*)"- Layer 0", (char*)"- Layer 1", (char*)"- Layer 2",
+    (char*)"- Layer 3", (char*)"- Layer 4"
+};
+static char* features_layer_texts[NUM_LAYERS] = {
+    (char*)"! Layer 0", (char*)"! Layer 1", (char*)"! Layer 2",
+    (char*)"! Layer 3", (char*)"! Layer 4"
 };
 
-//--------Layer 1 子页面选项
-static Option pad_b_option_array[PAD_PAGE_NUM] = {
-    {.text = (char *)"- Layer 1"},
-    {.text = (char *)"! Enable"},
-    {.text = (char *)"@ Volume",  .val = 0},
-    {.text = (char *)"@ Subs",    .val = 0},
-    {.text = (char *)"@ Time",    .val = 0}
-};
+//--------Layer 子页面选项 (Features → Layer N, WouoUI_UserInit 中初始化)
+static Option pad_option_arrays[NUM_LAYERS][PAD_PAGE_NUM];
 
-//--------Layer 2 子页面选项
-static Option pad_c_option_array[PAD_PAGE_NUM] = {
-    {.text = (char *)"- Layer 2"},
-    {.text = (char *)"! Enable"},
-    {.text = (char *)"@ Volume",  .val = 0},
-    {.text = (char *)"@ Subs",    .val = 0},
-    {.text = (char *)"@ Time",    .val = 0}
-};
-
-//--------Layer 3 子页面选项
-static Option pad_d_option_array[PAD_PAGE_NUM] = {
-    {.text = (char *)"- Layer 3"},
-    {.text = (char *)"! Enable"},
-    {.text = (char *)"@ Volume",  .val = 0},
-    {.text = (char *)"@ Subs",    .val = 0},
-    {.text = (char *)"@ Time",    .val = 0}
-};
-
-//--------Layer 4 子页面选项
-static Option pad_e_option_array[PAD_PAGE_NUM] = {
-    {.text = (char *)"- Layer 4"},
-    {.text = (char *)"! Enable"},
-    {.text = (char *)"@ Volume",  .val = 0},
-    {.text = (char *)"@ Subs",    .val = 0},
-    {.text = (char *)"@ Time",    .val = 0}
-};
+//--------Features 页面选项 (WouoUI_UserInit 中填充)
+static Option features_option_array[FEATURES_PAGE_NUM];
 
 //--------User 页面选项 (BLE 多设备)
 static Option user_option_array[USER_PAGE_NUM] = {
@@ -199,7 +185,7 @@ static Option settings_option_array[SETTINGS_PAGE_NUM] = {
     {.text = (char *)"- Settings"},
     {.text = (char *)"~ Brightness", .val = 80},
     {.text = (char *)"> Screen Off", .content = (char*)"20s"},
-    {.text = (char *)"@ Quick Menu", .val = 0},
+    {.text = (char *)"@ Quick Menu", .val = 1},
     {.text = (char *)"! DFU Mode"},
     {.text = (char *)"! Bootloader Mode"}
 };
@@ -214,55 +200,41 @@ static Option about_option_array[ABOUT_PAGE_NUM] = {
 
 //--------回调函数
 
-// 主菜单回调：跳转到各子页面
+// Features 页面回调：跳转到对应 Layer 的功能配置子页面
+static bool FeaturesPage_Callback(const Page *cur_page, InputMsg msg) {
+    if (msg != msg_click) return false;
+
+    Option* opt = WouoUI_ListTitlePageGetSelectOpt(cur_page);
+    if (opt == NULL) return false;
+
+    // order 1..NUM_LAYERS → pad_pages[0..NUM_LAYERS-1]
+    if (opt->order >= 1 && opt->order <= NUM_LAYERS) {
+        WouoUI_JumpToPage((PageAddr)cur_page, &pad_pages[opt->order - 1]);
+    }
+    return false;
+}
+
+// 主菜单回调：Layer 0-4 直接切换并退出，其余跳转子页面
 static bool MainPage_Callback(const Page *cur_page, InputMsg msg) {
     if (msg != msg_click) return false;
 
     Option* opt = WouoUI_ListTitlePageGetSelectOpt(cur_page);
     if (opt == NULL) return false;
 
-    switch (opt->order) {
-        case 0: WouoUI_JumpToPage((PageAddr)cur_page, &pad_a_page); break;
-        case 1: WouoUI_JumpToPage((PageAddr)cur_page, &pad_b_page); break;
-        case 2: WouoUI_JumpToPage((PageAddr)cur_page, &pad_c_page); break;
-        case 3: WouoUI_JumpToPage((PageAddr)cur_page, &pad_d_page); break;
-        case 4: WouoUI_JumpToPage((PageAddr)cur_page, &pad_e_page); break;
-        case 5: WouoUI_JumpToPage((PageAddr)cur_page, &user_page); break;
-        case 6: WouoUI_JumpToPage((PageAddr)cur_page, &settings_page); break;
-        case 7: WouoUI_JumpToPage((PageAddr)cur_page, &about_page); break;
-    }
-    return false;
-}
-
-// Layer 子页面回调（5 个 Layer 页面共用）
-// 点击 Enable 后设置 Layer 并请求退出菜单
-// 点击 Data Ch/Volume/Subs/Time 后同步 g_pad_dc_enabled
-static bool PadPage_Callback(const Page *cur_page, InputMsg msg) {
-    if (msg != msg_click) return false;
-
-    Option* opt = WouoUI_ListTitlePageGetSelectOpt(cur_page);
-    if (opt == NULL) return false;
-
-    // 根据页面地址确定是哪个 Layer
-    uint8_t pad_idx = 0;
-    if ((PageAddr)cur_page == (PageAddr)&pad_b_page) {
-        pad_idx = 1;
-    } else if ((PageAddr)cur_page == (PageAddr)&pad_c_page) {
-        pad_idx = 2;
-    } else if ((PageAddr)cur_page == (PageAddr)&pad_d_page) {
-        pad_idx = 3;
-    } else if ((PageAddr)cur_page == (PageAddr)&pad_e_page) {
-        pad_idx = 4;
-    }
-
-    if (opt->order == 1) {
-        // "Enable" action: select this layer and request exit
-        g_selected_pad = pad_idx;
+    if (opt->order < NUM_LAYERS) {
+        // Layer 选择 — 直接切换并退出菜单
+        g_selected_pad = opt->order;
         g_exit_requested = 1;
+    } else {
+        // 固定菜单项 (User, Settings, Features, About)
+        uint8_t fixed_idx = opt->order - NUM_LAYERS;
+        switch (fixed_idx) {
+            case 0: WouoUI_JumpToPage((PageAddr)cur_page, &user_page); break;
+            case 1: WouoUI_JumpToPage((PageAddr)cur_page, &settings_page); break;
+            case 2: WouoUI_JumpToPage((PageAddr)cur_page, &features_page); break;
+            case 3: WouoUI_JumpToPage((PageAddr)cur_page, &about_page); break;
+        }
     }
-    // Checkbox items (Volume, Subs, Time) at order 2-4
-    // val is auto-toggled by WouoUI auto_deal_with_msg
-
     return false;
 }
 
@@ -346,32 +318,57 @@ static bool SettingsPage_Callback(const Page *cur_page, InputMsg msg) {
 
 //--------初始化函数
 void WouoUI_UserInit(void) {
-    // 主菜单 (TitlePage with 8 icons)
+    // 生成主菜单 Layer 项 (前 NUM_LAYERS 个)
+    for (uint8_t i = 0; i < NUM_LAYERS; i++) {
+        main_option_array[i] = (Option){.text = main_layer_texts[i]};
+        memcpy(main_icon_storage[i], layer_digit_icons[i], ICON_BUFFSIZE);
+    }
+    // 固定菜单项 (User, Settings, Features, About)
+    main_option_array[NUM_LAYERS + 0] = (Option){.text = (char*)"+ User"};
+    main_option_array[NUM_LAYERS + 1] = (Option){.text = (char*)"+ Settings"};
+    main_option_array[NUM_LAYERS + 2] = (Option){.text = (char*)"+ Features"};
+    main_option_array[NUM_LAYERS + 3] = (Option){.text = (char*)"+ About"};
+    memcpy(main_icon_storage[NUM_LAYERS + 0], fixed_icons[0], ICON_BUFFSIZE);
+    memcpy(main_icon_storage[NUM_LAYERS + 1], fixed_icons[1], ICON_BUFFSIZE);
+    memcpy(main_icon_storage[NUM_LAYERS + 2], fixed_icons[2], ICON_BUFFSIZE);
+    memcpy(main_icon_storage[NUM_LAYERS + 3], fixed_icons[3], ICON_BUFFSIZE);
+
+    // 主菜单 (TitlePage)
     WouoUI_TitlePageInit(
         &main_page,
         MAIN_PAGE_NUM,
         main_option_array,
-        main_icon_array,
+        (Icon *)main_icon_storage,
         MainPage_Callback
     );
 
-    // Layer 0/1/2/3/4 子页面
-    WouoUI_ListPageInit(&pad_a_page, PAD_PAGE_NUM, pad_a_option_array, Setting_none, PadPage_Callback);
-    WouoUI_ListPageSetFirstSelectable(&pad_a_page, 1);
-    WouoUI_ListPageInit(&pad_b_page, PAD_PAGE_NUM, pad_b_option_array, Setting_none, PadPage_Callback);
-    WouoUI_ListPageSetFirstSelectable(&pad_b_page, 1);
-    WouoUI_ListPageInit(&pad_c_page, PAD_PAGE_NUM, pad_c_option_array, Setting_none, PadPage_Callback);
-    WouoUI_ListPageSetFirstSelectable(&pad_c_page, 1);
-    WouoUI_ListPageInit(&pad_d_page, PAD_PAGE_NUM, pad_d_option_array, Setting_none, PadPage_Callback);
-    WouoUI_ListPageSetFirstSelectable(&pad_d_page, 1);
-    WouoUI_ListPageInit(&pad_e_page, PAD_PAGE_NUM, pad_e_option_array, Setting_none, PadPage_Callback);
-    WouoUI_ListPageSetFirstSelectable(&pad_e_page, 1);
+    // 生成 Features 页面选项
+    features_option_array[0] = (Option){.text = (char*)"- Features"};
+    for (uint8_t i = 0; i < NUM_LAYERS; i++) {
+        features_option_array[i + 1] = (Option){.text = features_layer_texts[i]};
+    }
+
+    // 生成 Pad 功能配置子页面
+    for (uint8_t i = 0; i < NUM_LAYERS; i++) {
+        pad_option_arrays[i][0] = (Option){.text = pad_titles[i]};
+        pad_option_arrays[i][1] = (Option){.text = (char*)"@ Volume", .val = 0};
+        pad_option_arrays[i][2] = (Option){.text = (char*)"@ Subs",   .val = 0};
+        pad_option_arrays[i][3] = (Option){.text = (char*)"@ Time",   .val = 0};
+        WouoUI_ListPageInit(&pad_pages[i], PAD_PAGE_NUM, pad_option_arrays[i], Setting_none, NULL);
+        WouoUI_ListPageSetFirstSelectable(&pad_pages[i], 1);
+    }
+
+    // Features 页面 (树状菜单入口)
+    WouoUI_ListPageInit(&features_page, FEATURES_PAGE_NUM, features_option_array, Setting_none, FeaturesPage_Callback);
+    WouoUI_ListPageSetFirstSelectable(&features_page, 1);
 
     // User 页面 (radio buttons for BLE multi-device)
     WouoUI_ListPageInit(&user_page, USER_PAGE_NUM, user_option_array, Setting_radio, UserPage_Callback);
+    WouoUI_ListPageSetFirstSelectable(&user_page, 1);
 
     // Settings 页面
     WouoUI_ListPageInit(&settings_page, SETTINGS_PAGE_NUM, settings_option_array, Setting_none, SettingsPage_Callback);
+    WouoUI_ListPageSetFirstSelectable(&settings_page, 1);
 
     // About 页面
     WouoUI_ListPageInit(&about_page, ABOUT_PAGE_NUM, about_option_array, Setting_none, NULL);
@@ -391,14 +388,14 @@ void WouoUI_UserInit(void) {
     WouoUI_ListWinPageInit(&screen_timeout_win, 5, screen_timeout_options, true, NULL);
 }
 
-// Get selected layer index (0=Layer 0, 1=Layer 1, 2=Layer 2, 3=Layer 3, 4=Layer 4)
+// Get selected layer index (0..NUM_LAYERS-1)
 uint8_t WouoUI_K9Pad_GetSelectedPad(void) {
     return g_selected_pad;
 }
 
 // Set selected pad (for syncing menu state from external source)
 void WouoUI_K9Pad_SetSelectedPad(uint8_t pad) {
-    if (pad > 4) pad = 0;
+    if (pad >= NUM_LAYERS) pad = 0;
     g_selected_pad = pad;
 }
 
@@ -448,39 +445,23 @@ void WouoUI_K9Pad_ClearExitRequested(void) {
 // Bit 2: Subscriber count
 // Bit 3: Time display
 uint16_t WouoUI_K9Pad_GetEnabledFunctions(uint8_t pad_index) {
-    if (pad_index > 4) return 0;
-    Option *opts;
-    switch (pad_index) {
-        case 0: opts = pad_a_option_array; break;
-        case 1: opts = pad_b_option_array; break;
-        case 2: opts = pad_c_option_array; break;
-        case 3: opts = pad_d_option_array; break;
-        case 4: opts = pad_e_option_array; break;
-        default: return 0;
-    }
+    if (pad_index >= NUM_LAYERS) return 0;
+    Option *opts = pad_option_arrays[pad_index];
     uint16_t mask = 0;
-    if (opts[2].val) mask |= (1 << 1);  // Volume  -> bit 1
-    if (opts[3].val) mask |= (1 << 2);  // Subs    -> bit 2
-    if (opts[4].val) mask |= (1 << 3);  // Time    -> bit 3
+    if (opts[1].val) mask |= (1 << 1);  // Volume  -> bit 1
+    if (opts[2].val) mask |= (1 << 2);  // Subs    -> bit 2
+    if (opts[3].val) mask |= (1 << 3);  // Time    -> bit 3
     return mask;
 }
 
 // Set enabled data channel functions for a pad from bitmask
 // Bit 1: Volume, Bit 2: Subs, Bit 3: Time
 void WouoUI_K9Pad_SetEnabledFunctions(uint8_t pad_index, uint16_t mask) {
-    if (pad_index > 4) return;
-    Option *opts;
-    switch (pad_index) {
-        case 0: opts = pad_a_option_array; break;
-        case 1: opts = pad_b_option_array; break;
-        case 2: opts = pad_c_option_array; break;
-        case 3: opts = pad_d_option_array; break;
-        case 4: opts = pad_e_option_array; break;
-        default: return;
-    }
-    opts[2].val = (mask & (1 << 1)) ? 1 : 0;  // Volume
-    opts[3].val = (mask & (1 << 2)) ? 1 : 0;  // Subs
-    opts[4].val = (mask & (1 << 3)) ? 1 : 0;  // Time
+    if (pad_index >= NUM_LAYERS) return;
+    Option *opts = pad_option_arrays[pad_index];
+    opts[1].val = (mask & (1 << 1)) ? 1 : 0;  // Volume
+    opts[2].val = (mask & (1 << 2)) ? 1 : 0;  // Subs
+    opts[3].val = (mask & (1 << 3)) ? 1 : 0;  // Time
 }
 
 // Check if data channel is enabled for a pad (any function checkbox is checked)

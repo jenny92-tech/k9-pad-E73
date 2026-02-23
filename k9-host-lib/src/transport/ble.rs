@@ -86,12 +86,9 @@ impl BleTransport {
                 TransportError::ConnectionFailed("K9 data channel service not found".into())
             })?;
 
-        let chars = k9_service
-            .discover_characteristics()
-            .await
-            .map_err(|e| {
-                TransportError::ConnectionFailed(format!("Characteristic discovery: {e}"))
-            })?;
+        let chars = k9_service.discover_characteristics().await.map_err(|e| {
+            TransportError::ConnectionFailed(format!("Characteristic discovery: {e}"))
+        })?;
 
         let rx_char = chars
             .iter()
@@ -203,10 +200,7 @@ impl BleTransport {
     }
 
     /// Scan for a K9-Pad device by name.
-    async fn scan_and_find(
-        adapter: &Adapter,
-        timeout: Duration,
-    ) -> Result<Device, TransportError> {
+    async fn scan_and_find(adapter: &Adapter, timeout: Duration) -> Result<Device, TransportError> {
         info!("Scanning for K9-Pad BLE device...");
 
         let mut scan = adapter

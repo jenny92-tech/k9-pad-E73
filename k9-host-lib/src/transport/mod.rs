@@ -28,13 +28,9 @@ pub trait Transport: Send + Sync {
         data: &[u8],
     ) -> impl std::future::Future<Output = Result<(), TransportError>> + Send;
 
-    fn receive(
-        &self,
-    ) -> impl std::future::Future<Output = Result<Vec<u8>, TransportError>> + Send;
+    fn receive(&self) -> impl std::future::Future<Output = Result<Vec<u8>, TransportError>> + Send;
 
-    fn disconnect(
-        &self,
-    ) -> impl std::future::Future<Output = Result<(), TransportError>> + Send;
+    fn disconnect(&self) -> impl std::future::Future<Output = Result<(), TransportError>> + Send;
 
     fn is_connected(&self) -> bool;
 }

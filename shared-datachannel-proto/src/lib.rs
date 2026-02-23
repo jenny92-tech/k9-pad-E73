@@ -297,12 +297,7 @@ pub fn build_pong(buf: &mut [u8]) -> Option<usize> {
 pub fn build_config_changed(buf: &mut [u8], config: &PadConfig) -> Option<usize> {
     let mut payload = [0u8; PadConfig::WIRE_SIZE];
     config.encode(&mut payload)?;
-    build_packet(
-        buf,
-        CommandId::ConfigChanged,
-        DataType::PadConfig,
-        &payload,
-    )
+    build_packet(buf, CommandId::ConfigChanged, DataType::PadConfig, &payload)
 }
 
 /// Build a `STATUS_RESP` packet from a `PadConfig`.
@@ -354,10 +349,7 @@ pub fn build_get_capabilities(buf: &mut [u8]) -> Option<usize> {
 }
 
 /// Build a `CAPABILITIES_RESP` packet from a `DeviceCapabilities`.
-pub fn build_capabilities_resp(
-    buf: &mut [u8],
-    caps: &DeviceCapabilities,
-) -> Option<usize> {
+pub fn build_capabilities_resp(buf: &mut [u8], caps: &DeviceCapabilities) -> Option<usize> {
     let mut payload = [0u8; DeviceCapabilities::WIRE_SIZE];
     caps.encode(&mut payload)?;
     build_packet(
@@ -581,9 +573,10 @@ mod tests {
         assert_eq!(header.data_type, DataType::DeviceInfo);
         assert_eq!(header.payload_len as usize, DeviceCapabilities::WIRE_SIZE);
 
-        let decoded =
-            DeviceCapabilities::decode(&buf[HEADER_SIZE..HEADER_SIZE + header.payload_len as usize])
-                .unwrap();
+        let decoded = DeviceCapabilities::decode(
+            &buf[HEADER_SIZE..HEADER_SIZE + header.payload_len as usize],
+        )
+        .unwrap();
         assert_eq!(decoded, caps);
     }
 }

@@ -83,14 +83,11 @@ impl Provider for AiQuotaProvider {
             let (claude, codex) = tokio::join!(Self::poll_claude(), Self::poll_codex());
 
             // Pick the highest utilization among available tools.
-            let best = [claude, codex]
-                .into_iter()
-                .flatten()
-                .max_by(|a, b| {
-                    a.utilization_pct
-                        .partial_cmp(&b.utilization_pct)
-                        .unwrap_or(Ordering::Equal)
-                });
+            let best = [claude, codex].into_iter().flatten().max_by(|a, b| {
+                a.utilization_pct
+                    .partial_cmp(&b.utilization_pct)
+                    .unwrap_or(Ordering::Equal)
+            });
 
             if let Some(info) = best {
                 let progress = info.as_progress();

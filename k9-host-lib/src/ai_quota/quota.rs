@@ -62,9 +62,7 @@ pub async fn fetch_claude_quota(cred: &ClaudeOAuth) -> Result<QuotaInfo, AiQuota
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        return Err(AiQuotaError::ApiResponse(format!(
-            "HTTP {status}: {body}"
-        )));
+        return Err(AiQuotaError::ApiResponse(format!("HTTP {status}: {body}")));
     }
 
     let usage: ClaudeUsageResponse = resp.json().await?;
@@ -97,9 +95,7 @@ pub async fn fetch_codex_quota(tokens: &CodexTokens) -> Result<QuotaInfo, AiQuot
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        return Err(AiQuotaError::ApiResponse(format!(
-            "HTTP {status}: {body}"
-        )));
+        return Err(AiQuotaError::ApiResponse(format!("HTTP {status}: {body}")));
     }
 
     // The response shape is best-effort — try to extract a utilization number.

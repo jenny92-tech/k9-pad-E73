@@ -27,7 +27,7 @@
 | 显示系统 | `display/` | OLED 显示主循环 + UI 渲染（首页/菜单/数据通道） |
 | 数据通道 | `data_channel/` | BLE GATT 数据接收、协议解析(parse)、DisplayCommand 分发(task) |
 | 电池管理 | `battery.rs` | 充电检测、电量计算、BATTERY_STATUS Watch（硬件操作委托 driver 层） |
-| 模式管理 | `mode.rs` | KeyboardMode 枚举 + CURRENT_MODE Watch |
+| 模式管理 | `mode.rs` | KeyboardMode 结构体 + NUM_LAYERS 常量 + CURRENT_MODE Watch |
 | 应用设置 | `settings.rs` | 亮度等持久化设置 key 定义 + SETTINGS 全局实例 |
 | 菜单系统 | `menu/` | WouoUI 菜单输入控制 + 状态管理 |
 | OLED UI 框架 | `wououi/` | WouoUI C 库 FFI 绑定 |

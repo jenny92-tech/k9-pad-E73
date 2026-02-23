@@ -56,10 +56,7 @@ impl Provider for BilibiliProvider {
         loop {
             interval.tick().await;
 
-            let url = format!(
-                "https://api.bilibili.com/x/relation/stat?vmid={}",
-                self.uid
-            );
+            let url = format!("https://api.bilibili.com/x/relation/stat?vmid={}", self.uid);
 
             match client.get(&url).send().await {
                 Ok(resp) => match resp.json::<BiliStatResponse>().await {

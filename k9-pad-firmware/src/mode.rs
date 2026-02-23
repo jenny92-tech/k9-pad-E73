@@ -1,9 +1,10 @@
 // INPUT:  embassy_sync
-// OUTPUT: KeyboardMode enum, CURRENT_MODE watch
-// POS:    键盘模式管理（Layer 0/1/2/3/4），纯逻辑可测试
+// OUTPUT: KeyboardMode struct, NUM_LAYERS const, CURRENT_MODE watch
+// POS:    键盘模式管理（Layer 0..NUM_LAYERS-1），NUM_LAYERS 为唯一真相源
 // mode.rs - 键盘模式管理
 //
 // 设计原则：
+// - NUM_LAYERS 是 Layer 数量的唯一真相源 (Rust 侧)
 // - 纯逻辑与硬件依赖分离，便于单元测试
 // - 全局状态使用条件编译
 
@@ -12,74 +13,58 @@ use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 #[cfg(not(test))]
 use embassy_sync::watch::Watch;
 
-/// 键盘模式（对应 RMK Layer）
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum KeyboardMode {
-    #[default]
-    PadA,  // Layer 0
-    PadB,  // Layer 1
-    PadC,  // Layer 2
-    PadD,  // Layer 3
-    PadE,  // Layer 4
+/// Layer 数量 — 唯一真相源 (Rust 侧)
+/// SYNC: 必须与 WouoUI_k9pad.c 中的 NUM_LAYERS 保持一致
+pub const NUM_LAYERS: u8 = 5;
+
+/// 键盘模式（对应 RMK Layer），内部存储 layer index
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KeyboardMode(u8);
+
+impl Default for KeyboardMode {
+    fn default() -> Self {
+        Self(0)
+    }
 }
 
 impl KeyboardMode {
-    pub const ALL: [KeyboardMode; 5] = [
-        KeyboardMode::PadA,
-        KeyboardMode::PadB,
-        KeyboardMode::PadC,
-        KeyboardMode::PadD,
-        KeyboardMode::PadE,
-    ];
-
-    pub fn name(&self) -> &'static str {
-        match self {
-            KeyboardMode::PadA => "Layer 0",
-            KeyboardMode::PadB => "Layer 1",
-            KeyboardMode::PadC => "Layer 2",
-            KeyboardMode::PadD => "Layer 3",
-            KeyboardMode::PadE => "Layer 4",
-        }
+    pub const fn new(layer: u8) -> Self {
+        Self(if layer < NUM_LAYERS { layer } else { 0 })
     }
 
     pub fn layer_index(&self) -> u8 {
-        match self {
-            KeyboardMode::PadA => 0,
-            KeyboardMode::PadB => 1,
-            KeyboardMode::PadC => 2,
-            KeyboardMode::PadD => 3,
-            KeyboardMode::PadE => 4,
-        }
+        self.0
     }
 
     pub fn from_layer(layer: u8) -> Self {
-        match layer {
-            1 => Self::PadB,
-            2 => Self::PadC,
-            3 => Self::PadD,
-            4 => Self::PadE,
-            _ => Self::PadA,
-        }
+        Self::new(layer)
+    }
+
+    pub fn name(&self) -> &'static str {
+        // 预分配 10 个名称，运行时只用前 NUM_LAYERS 个
+        const NAMES: [&str; 10] = [
+            "Layer 0", "Layer 1", "Layer 2", "Layer 3", "Layer 4",
+            "Layer 5", "Layer 6", "Layer 7", "Layer 8", "Layer 9",
+        ];
+        NAMES[self.0 as usize]
     }
 
     pub fn next(&self) -> KeyboardMode {
-        match self {
-            KeyboardMode::PadA => KeyboardMode::PadB,
-            KeyboardMode::PadB => KeyboardMode::PadC,
-            KeyboardMode::PadC => KeyboardMode::PadD,
-            KeyboardMode::PadD => KeyboardMode::PadE,
-            KeyboardMode::PadE => KeyboardMode::PadA,
-        }
+        Self((self.0 + 1) % NUM_LAYERS)
     }
 
     pub fn prev(&self) -> KeyboardMode {
-        match self {
-            KeyboardMode::PadA => KeyboardMode::PadE,
-            KeyboardMode::PadB => KeyboardMode::PadA,
-            KeyboardMode::PadC => KeyboardMode::PadB,
-            KeyboardMode::PadD => KeyboardMode::PadC,
-            KeyboardMode::PadE => KeyboardMode::PadD,
-        }
+        Self((self.0 + NUM_LAYERS - 1) % NUM_LAYERS)
+    }
+
+    pub fn all() -> &'static [KeyboardMode] {
+        const ALL: [KeyboardMode; 10] = [
+            KeyboardMode(0), KeyboardMode(1), KeyboardMode(2),
+            KeyboardMode(3), KeyboardMode(4), KeyboardMode(5),
+            KeyboardMode(6), KeyboardMode(7), KeyboardMode(8),
+            KeyboardMode(9),
+        ];
+        &ALL[..NUM_LAYERS as usize]
     }
 }
 
@@ -96,101 +81,109 @@ mod tests {
     #[test]
     fn test_keyboard_mode_default() {
         let mode = KeyboardMode::default();
-        assert_eq!(mode, KeyboardMode::PadA);
+        assert_eq!(mode, KeyboardMode::new(0));
+        assert_eq!(mode.layer_index(), 0);
     }
 
     #[test]
     fn test_keyboard_mode_all() {
-        assert_eq!(KeyboardMode::ALL.len(), 5);
-        assert_eq!(KeyboardMode::ALL[0], KeyboardMode::PadA);
-        assert_eq!(KeyboardMode::ALL[1], KeyboardMode::PadB);
-        assert_eq!(KeyboardMode::ALL[2], KeyboardMode::PadC);
-        assert_eq!(KeyboardMode::ALL[3], KeyboardMode::PadD);
-        assert_eq!(KeyboardMode::ALL[4], KeyboardMode::PadE);
+        let all = KeyboardMode::all();
+        assert_eq!(all.len(), NUM_LAYERS as usize);
+        for (i, mode) in all.iter().enumerate() {
+            assert_eq!(mode.layer_index(), i as u8);
+        }
     }
 
     #[test]
     fn test_keyboard_mode_name() {
-        assert_eq!(KeyboardMode::PadA.name(), "Layer 0");
-        assert_eq!(KeyboardMode::PadB.name(), "Layer 1");
-        assert_eq!(KeyboardMode::PadC.name(), "Layer 2");
-        assert_eq!(KeyboardMode::PadD.name(), "Layer 3");
-        assert_eq!(KeyboardMode::PadE.name(), "Layer 4");
+        for i in 0..NUM_LAYERS {
+            let mode = KeyboardMode::new(i);
+            let expected = KeyboardMode::all()[i as usize].name();
+            assert_eq!(mode.name(), expected);
+            assert!(mode.name().starts_with("Layer "));
+        }
     }
 
     #[test]
     fn test_keyboard_mode_layer_index() {
-        assert_eq!(KeyboardMode::PadA.layer_index(), 0);
-        assert_eq!(KeyboardMode::PadB.layer_index(), 1);
-        assert_eq!(KeyboardMode::PadC.layer_index(), 2);
-        assert_eq!(KeyboardMode::PadD.layer_index(), 3);
-        assert_eq!(KeyboardMode::PadE.layer_index(), 4);
+        for i in 0..NUM_LAYERS {
+            assert_eq!(KeyboardMode::new(i).layer_index(), i);
+        }
     }
 
     #[test]
     fn test_keyboard_mode_from_layer() {
-        assert_eq!(KeyboardMode::from_layer(0), KeyboardMode::PadA);
-        assert_eq!(KeyboardMode::from_layer(1), KeyboardMode::PadB);
-        assert_eq!(KeyboardMode::from_layer(2), KeyboardMode::PadC);
-        assert_eq!(KeyboardMode::from_layer(3), KeyboardMode::PadD);
-        assert_eq!(KeyboardMode::from_layer(4), KeyboardMode::PadE);
-        assert_eq!(KeyboardMode::from_layer(255), KeyboardMode::PadA);
+        for i in 0..NUM_LAYERS {
+            assert_eq!(KeyboardMode::from_layer(i), KeyboardMode::new(i));
+        }
+        // Out-of-range wraps to 0
+        assert_eq!(KeyboardMode::from_layer(NUM_LAYERS), KeyboardMode::new(0));
+        assert_eq!(KeyboardMode::from_layer(255), KeyboardMode::new(0));
     }
 
     #[test]
     fn test_keyboard_mode_next() {
-        assert_eq!(KeyboardMode::PadA.next(), KeyboardMode::PadB);
-        assert_eq!(KeyboardMode::PadB.next(), KeyboardMode::PadC);
-        assert_eq!(KeyboardMode::PadC.next(), KeyboardMode::PadD);
-        assert_eq!(KeyboardMode::PadD.next(), KeyboardMode::PadE);
-        assert_eq!(KeyboardMode::PadE.next(), KeyboardMode::PadA);
+        for i in 0..NUM_LAYERS {
+            let mode = KeyboardMode::new(i);
+            let expected = (i + 1) % NUM_LAYERS;
+            assert_eq!(mode.next(), KeyboardMode::new(expected));
+        }
     }
 
     #[test]
     fn test_keyboard_mode_prev() {
-        assert_eq!(KeyboardMode::PadA.prev(), KeyboardMode::PadE);
-        assert_eq!(KeyboardMode::PadB.prev(), KeyboardMode::PadA);
-        assert_eq!(KeyboardMode::PadC.prev(), KeyboardMode::PadB);
-        assert_eq!(KeyboardMode::PadD.prev(), KeyboardMode::PadC);
-        assert_eq!(KeyboardMode::PadE.prev(), KeyboardMode::PadD);
+        for i in 0..NUM_LAYERS {
+            let mode = KeyboardMode::new(i);
+            let expected = (i + NUM_LAYERS - 1) % NUM_LAYERS;
+            assert_eq!(mode.prev(), KeyboardMode::new(expected));
+        }
     }
 
     #[test]
     fn test_keyboard_mode_next_cycle() {
-        let mut mode = KeyboardMode::PadA;
-        for _ in 0..5 {
+        let mut mode = KeyboardMode::default();
+        for _ in 0..NUM_LAYERS {
             mode = mode.next();
         }
-        assert_eq!(mode, KeyboardMode::PadA);
+        assert_eq!(mode, KeyboardMode::default());
     }
 
     #[test]
     fn test_keyboard_mode_prev_cycle() {
-        let mut mode = KeyboardMode::PadA;
-        for _ in 0..5 {
+        let mut mode = KeyboardMode::default();
+        for _ in 0..NUM_LAYERS {
             mode = mode.prev();
         }
-        assert_eq!(mode, KeyboardMode::PadA);
+        assert_eq!(mode, KeyboardMode::default());
     }
 
     #[test]
     fn test_keyboard_mode_next_prev_inverse() {
-        for mode in KeyboardMode::ALL {
-            assert_eq!(mode.next().prev(), mode);
-            assert_eq!(mode.prev().next(), mode);
+        for mode in KeyboardMode::all() {
+            assert_eq!(mode.next().prev(), *mode);
+            assert_eq!(mode.prev().next(), *mode);
         }
     }
 
     #[test]
     fn test_keyboard_mode_equality() {
-        assert_eq!(KeyboardMode::PadA, KeyboardMode::PadA);
-        assert_ne!(KeyboardMode::PadA, KeyboardMode::PadB);
+        assert_eq!(KeyboardMode::new(0), KeyboardMode::new(0));
+        if NUM_LAYERS > 1 {
+            assert_ne!(KeyboardMode::new(0), KeyboardMode::new(1));
+        }
     }
 
     #[test]
     fn test_keyboard_mode_clone() {
-        let mode = KeyboardMode::PadB;
+        let mode = KeyboardMode::new(1 % NUM_LAYERS);
         let cloned = mode;
         assert_eq!(mode, cloned);
+    }
+
+    #[test]
+    fn test_keyboard_mode_new_out_of_range() {
+        // Out-of-range layer should wrap to 0
+        assert_eq!(KeyboardMode::new(NUM_LAYERS), KeyboardMode::new(0));
+        assert_eq!(KeyboardMode::new(NUM_LAYERS + 5), KeyboardMode::new(0));
     }
 }

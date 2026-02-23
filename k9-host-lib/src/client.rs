@@ -89,13 +89,8 @@ impl<T: Transport> K9Client<T> {
 
         // Send GetStatus request
         let mut buf = [0u8; MAX_PACKET_SIZE];
-        let n = proto::build_packet(
-            &mut buf,
-            CommandId::GetStatus,
-            DataType::PadConfig,
-            &[],
-        )
-        .ok_or_else(|| ClientError::Protocol("Failed to build status request".into()))?;
+        let n = proto::build_packet(&mut buf, CommandId::GetStatus, DataType::PadConfig, &[])
+            .ok_or_else(|| ClientError::Protocol("Failed to build status request".into()))?;
         self.transport.send(&buf[..n]).await?;
 
         // Wait for StatusResp
@@ -152,9 +147,7 @@ impl<T: Transport> K9Client<T> {
         let header = PacketHeader::decode(&response)
             .map_err(|e| ClientError::Protocol(format!("Invalid response header: {e:?}")))?;
 
-        if header.cmd != CommandId::CapabilitiesResp
-            || header.data_type != DataType::DeviceInfo
-        {
+        if header.cmd != CommandId::CapabilitiesResp || header.data_type != DataType::DeviceInfo {
             return Err(ClientError::Protocol(format!(
                 "Unexpected response: cmd={:?} type={:?}",
                 header.cmd, header.data_type
@@ -290,7 +283,10 @@ mod tests {
 
         let long_text = "a".repeat(proto::MAX_PAYLOAD_SIZE); // 60 bytes, exceeds max (59)
         let result = client.push_text(0, &long_text).await;
-        assert!(matches!(result, Err(ClientError::TextTooLong { max: 59, got: 60 })));
+        assert!(matches!(
+            result,
+            Err(ClientError::TextTooLong { max: 59, got: 60 })
+        ));
     }
 
     #[tokio::test]

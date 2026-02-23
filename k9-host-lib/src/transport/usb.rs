@@ -99,10 +99,8 @@ impl Transport for UsbTransport {
             )));
         }
         if payload_len > 0 {
-            port.read_exact(
-                &mut buf[k9_datachannel_proto::HEADER_SIZE..total_len],
-            )
-            .map_err(|e| TransportError::ReceiveFailed(format!("Payload read: {e}")))?;
+            port.read_exact(&mut buf[k9_datachannel_proto::HEADER_SIZE..total_len])
+                .map_err(|e| TransportError::ReceiveFailed(format!("Payload read: {e}")))?;
         }
 
         buf.truncate(total_len);

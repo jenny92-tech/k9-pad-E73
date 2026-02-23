@@ -5,8 +5,8 @@
 use std::time::{Duration, Instant};
 
 use clap::Parser;
-use k9_host_lib::{K9Client, Transport};
 use k9_datachannel_proto::function_bits;
+use k9_host_lib::{K9Client, Transport};
 
 #[derive(Parser)]
 #[command(name = "test_connection", about = "K9-Pad communication test")]

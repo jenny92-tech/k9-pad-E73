@@ -19,7 +19,7 @@ use crate::driver::{board, flash::FlashStore};
 pub mod keys {
     pub const BRIGHTNESS: u8 = 0x00;
     pub const SCREEN_TIMEOUT: u8 = 0x01;
-    /// Per-pad data channel functions (pad 0-4 → key 0x02-0x06).
+    /// Per-pad data channel functions (pad 0..NUM_LAYERS-1 → key 0x02+pad_index).
     /// Use as `DC_FUNCTIONS_PAD0 + pad_index`.
     pub const DC_FUNCTIONS_PAD0: u8 = 0x02;
     /// Quick Menu: long-press ESC enters menu directly when screen is off.

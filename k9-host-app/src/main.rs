@@ -4,8 +4,8 @@
 pub mod providers;
 
 use gpui::{
-    div, AppContext, Application, Context, IntoElement, ParentElement, Render, Styled, Window,
-    WindowOptions,
+    div, px, size, AppContext, Application, Bounds, Context, IntoElement, ParentElement, Render,
+    SharedString, Styled, TitlebarOptions, Window, WindowBounds, WindowOptions,
 };
 
 struct RootView;
@@ -17,6 +17,8 @@ impl Render for RootView {
             .flex()
             .items_center()
             .justify_center()
+            .bg(gpui::rgb(0x1e1e2e))
+            .text_color(gpui::rgb(0xcdd6f4))
             .child("K9-Pad Host — connecting...")
     }
 }
@@ -25,9 +27,21 @@ fn main() {
     env_logger::init();
 
     Application::new().run(|app| {
-        app.open_window(WindowOptions::default(), |_window, app| {
-            app.new(|_cx| RootView)
-        })
-        .unwrap();
+        let options = WindowOptions {
+            titlebar: Some(TitlebarOptions {
+                title: Some(SharedString::from("K9-Pad Manager")),
+                ..Default::default()
+            }),
+            window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                None,
+                size(px(800.0), px(600.0)),
+                app,
+            ))),
+            focus: true,
+            show: true,
+            ..Default::default()
+        };
+        app.open_window(options, |_window, app| app.new(|_cx| RootView))
+            .unwrap();
     });
 }
