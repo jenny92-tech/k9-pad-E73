@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      device_name:
+        description: 'BLE broadcast name (e.g. K9-Pad-001)'
+        required: false
+        default: ''
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ---- Host-side crates (shared-datachannel-proto, k9-host-lib) ----
+  host:
+    name: Host — build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Format check
+        run: cargo fmt --check
+
+      - name: Clippy (shared-datachannel-proto)
+        run: cargo clippy -p shared-datachannel-proto -- -D warnings
+
+      - name: Clippy (k9-host-lib)
+        run: cargo clippy -p k9-host-lib -- -D warnings
+
+      - name: Test (shared-datachannel-proto)
+        run: cargo test -p shared-datachannel-proto
+
+      - name: Test (k9-host-lib)
+        run: cargo test -p k9-host-lib --lib
+
+  # ---- Firmware cross-compilation check ----
+  firmware:
+    name: Firmware — check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7em-none-eabihf
+
+      - name: Install ARM toolchain
+        run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi
+
+      - name: Set BLE device name
+        if: ${{ github.event.inputs.device_name != '' }}
+        working-directory: k9-pad-firmware
+        run: |
+          sed -i 's/^name = ".*"/name = "${{ github.event.inputs.device_name }}"/' keyboard.toml
+          sed -i 's/^product_name = ".*"/product_name = "${{ github.event.inputs.device_name }}"/' keyboard.toml
+          echo "BLE name set to: ${{ github.event.inputs.device_name }}"
+          head -3 keyboard.toml
+
+      - name: Check firmware (ARM)
+        working-directory: k9-pad-firmware
+        run: cargo check
