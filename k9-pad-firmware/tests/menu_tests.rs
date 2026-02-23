@@ -1,7 +1,6 @@
-// tests/menu_tests.rs - 菜单系统单元测试
-//
-// 独立的测试文件，不依赖嵌入式库
-// 直接复制测试所需的纯逻辑结构
+// INPUT:  menu state types (copied from src/menu/state.rs)
+// OUTPUT: MenuInput enum, MenuState struct unit tests
+// POS:    独立测试文件，测试菜单状态机逻辑（不依赖嵌入式库）
 
 // ============== 复制自 menu/state.rs 的纯逻辑部分 ==============
 
