@@ -10,7 +10,7 @@
  * Sub-pages:
  *   Layer 0/1/2/3/4: "Enable" action + Data Ch / Volume / Subs / Time checkboxes
  *   User: User A/B/C radio (BLE multi-device) + Clear Bond
- *   Settings: BLE toggle + Brightness slider + Screen Off selector + DFU Mode + To Bootloader
+ *   Settings: Brightness slider + Screen Off selector + Quick Menu + DFU Mode + To Bootloader
  *   About: firmware info
  */
 
@@ -56,7 +56,7 @@ static char* screen_timeout_options[5] = {
 #define MAIN_PAGE_NUM       8
 #define PAD_PAGE_NUM        5
 #define USER_PAGE_NUM       5
-#define SETTINGS_PAGE_NUM   7
+#define SETTINGS_PAGE_NUM   6
 #define ABOUT_PAGE_NUM      4
 
 //--------主菜单选项
@@ -197,7 +197,6 @@ static Option user_option_array[USER_PAGE_NUM] = {
 //--------Settings 页面选项
 static Option settings_option_array[SETTINGS_PAGE_NUM] = {
     {.text = (char *)"- Settings"},
-    {.text = (char *)"@ BLE", .val = 1},
     {.text = (char *)"~ Brightness", .val = 80},
     {.text = (char *)"> Screen Off", .content = (char*)"20s"},
     {.text = (char *)"@ Quick Menu", .val = 0},
@@ -321,23 +320,21 @@ static bool SettingsPage_Callback(const Page *cur_page, InputMsg msg) {
     if (opt == NULL) return false;
 
     switch (opt->order) {
-        case 1: // BLE toggle - auto handled by @ checkbox
-            break;
-        case 2: // Brightness - jump to ValWin
+        case 1: // Brightness - jump to ValWin
             WouoUI_JumpToPage((PageAddr)cur_page, &brightness_win);
             break;
-        case 3: // Screen Off - jump to ListWin selector
+        case 2: // Screen Off - jump to ListWin selector
             WouoUI_JumpToPage((PageAddr)cur_page, &screen_timeout_win);
             break;
-        case 4: // Quick Menu toggle - auto handled by @ checkbox
+        case 3: // Quick Menu toggle - auto handled by @ checkbox
             break;
-        case 5: // DFU Mode - show confirmation dialog
+        case 4: // DFU Mode - show confirmation dialog
             pending_dfu_action = 1;
             dfu_conf_win.content = (char*)"Enter DFU Mode?";
             dfu_conf_win.conf_ret = false; // Default to "No" for safety
             WouoUI_JumpToPage((PageAddr)cur_page, &dfu_conf_win);
             break;
-        case 6: // Bootloader Mode - show confirmation dialog
+        case 5: // Bootloader Mode - show confirmation dialog
             pending_dfu_action = 2;
             dfu_conf_win.content = (char*)"Enter Bootloader?";
             dfu_conf_win.conf_ret = false; // Default to "No" for safety
@@ -407,7 +404,7 @@ void WouoUI_K9Pad_SetSelectedPad(uint8_t pad) {
 
 // Get brightness value (0-100) — confirmed value from settings option
 uint8_t WouoUI_K9Pad_GetBrightness(void) {
-    return (uint8_t)settings_option_array[2].val;
+    return (uint8_t)settings_option_array[1].val;
 }
 
 // Get live brightness value (0-100)
@@ -417,18 +414,13 @@ uint8_t WouoUI_K9Pad_GetLiveBrightness(void) {
     if (p_cur_ui->current_page == (PageAddr)&brightness_win) {
         return (uint8_t)brightness_win.val;
     }
-    return (uint8_t)settings_option_array[2].val;
+    return (uint8_t)settings_option_array[1].val;
 }
 
 // Set brightness value (0-100) — sets both settings option and ValWin
 void WouoUI_K9Pad_SetBrightness(uint8_t val) {
-    settings_option_array[2].val = val;
+    settings_option_array[1].val = val;
     brightness_win.val = val;
-}
-
-// Get BLE enabled state (1=on, 0=off)
-uint8_t WouoUI_K9Pad_GetBleEnabled(void) {
-    return (uint8_t)(settings_option_array[1].val != 0);
 }
 
 // Get selected user index (0=User A, 1=User B, 2=User C)
@@ -518,12 +510,12 @@ void WouoUI_K9Pad_ClearUSBBootloaderRequested(void) {
 
 // Get Quick Menu enabled state (1=on, 0=off)
 uint8_t WouoUI_K9Pad_GetQuickMenuEnabled(void) {
-    return (uint8_t)(settings_option_array[4].val != 0);
+    return (uint8_t)(settings_option_array[3].val != 0);
 }
 
 // Set Quick Menu enabled state
 void WouoUI_K9Pad_SetQuickMenuEnabled(uint8_t val) {
-    settings_option_array[4].val = val ? 1 : 0;
+    settings_option_array[3].val = val ? 1 : 0;
 }
 
 // Get screen timeout in seconds from ListWin selection
@@ -548,5 +540,5 @@ void WouoUI_K9Pad_SetScreenTimeout(uint8_t seconds) {
     }
     screen_timeout_win.sel_str_index = idx;
     // Update the Settings page option content to reflect current selection
-    settings_option_array[3].content = screen_timeout_options[idx];
+    settings_option_array[2].content = screen_timeout_options[idx];
 }

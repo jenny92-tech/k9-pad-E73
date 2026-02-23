@@ -74,9 +74,6 @@ void WouoUI_K9Pad_SetSelectedPad(uint8_t pad);
 // K9-Pad specific: Get brightness value (0-100)
 uint8_t WouoUI_K9Pad_GetBrightness(void);
 
-// K9-Pad specific: Get BLE enabled state (1=on, 0=off)
-uint8_t WouoUI_K9Pad_GetBleEnabled(void);
-
 // K9-Pad specific: Get selected user index (0=User A, 1=User B, 2=User C)
 uint8_t WouoUI_K9Pad_GetSelectedUser(void);
 

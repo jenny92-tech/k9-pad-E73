@@ -160,7 +160,6 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
     let mut confirmed_brightness: u8 = saved_brightness;
     let mut last_contrast_write = Instant::now();
     const CONTRAST_MIN_INTERVAL: Duration = Duration::from_millis(100);
-    let mut current_ble_enabled: bool = true;
     let mut current_user: u8 = 0;
     // BLE 连接状态：通过 RMK 事件系统订阅（替代有 bug 的 get_connection_state 轮询）
     let mut ble_sub = BleStateChangeEvent::subscriber();
@@ -430,14 +429,6 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
                 confirmed_quick_menu = quick_menu;
                 SETTINGS.write(keys::QUICK_MENU, if quick_menu { 1 } else { 0 });
                 defmt::info!("Quick menu changed: {}", quick_menu);
-            }
-
-            // 检测 BLE 开关变化
-            let ble_enabled = wououi.get_ble_enabled();
-            if ble_enabled != current_ble_enabled {
-                current_ble_enabled = ble_enabled;
-                defmt::info!("BLE enabled: {}", ble_enabled);
-                // TODO: RMK 未暴露 BLE 启停的公共 API，待后续支持
             }
 
             // 检测 User 切换（BLE 多设备）

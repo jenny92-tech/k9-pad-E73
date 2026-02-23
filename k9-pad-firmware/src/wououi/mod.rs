@@ -76,9 +76,6 @@ extern "C" {
     /// Set brightness value (0-100) — sets both settings option and ValWin
     fn WouoUI_K9Pad_SetBrightness(val: u8);
 
-    /// Get BLE enabled state (1=on, 0=off)
-    fn WouoUI_K9Pad_GetBleEnabled() -> u8;
-
     /// Get selected user index (0=User A, 1=User B, 2=User C)
     fn WouoUI_K9Pad_GetSelectedUser() -> u8;
 
@@ -267,16 +264,6 @@ impl WouoUI {
         // SAFETY: WouoUI_K9Pad_SetBrightness writes to settings_option_array[2].val
         // and brightness_win.val. The `initialized` check guarantees these exist.
         unsafe { WouoUI_K9Pad_SetBrightness(val) }
-    }
-
-    /// Get BLE enabled state
-    pub fn get_ble_enabled(&self) -> bool {
-        if !self.initialized {
-            return true;
-        }
-        // SAFETY: WouoUI_K9Pad_GetBleEnabled reads settings_option_array[1].val
-        // from the C menu. Pure read, no side effects.
-        unsafe { WouoUI_K9Pad_GetBleEnabled() != 0 }
     }
 
     /// Get selected user index (0=User A, 1=User B, 2=User C)
