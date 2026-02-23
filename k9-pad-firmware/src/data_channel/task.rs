@@ -11,7 +11,7 @@ use super::{parse, DISPLAY_DATA, DATA_CHANNEL_CONFIG};
 /// 同时监听菜单配置变化，发送 CONFIG_CHANGED 到 DATA_CHANNEL_TX。
 #[cfg(not(test))]
 pub async fn run_data_channel() -> ! {
-    use k9_datachannel_proto::build_config_changed;
+    use k9_datachannel_proto::{build_config_changed, PadConfig};
     use rmk::data_channel::{DATA_CHANNEL_RX, DATA_CHANNEL_TX};
 
     defmt::info!("Data channel task started");
@@ -20,6 +20,9 @@ pub async fn run_data_channel() -> ! {
     let mut config_rx = DATA_CHANNEL_CONFIG
         .receiver()
         .expect("DATA_CHANNEL_CONFIG: no receiver slot available (max 2)");
+
+    // Track latest config so handle_control_packet can reply with real data
+    let mut current_config = PadConfig::default();
 
     loop {
         // 同时等待：主机数据 或 配置变化
@@ -36,14 +39,15 @@ pub async fn run_data_channel() -> ! {
                     let _ = DISPLAY_DATA.try_send(cmd);
                 }
 
-                // 尝试处理控制命令（PING, GET_STATUS）
-                if let Some(resp) = parse::handle_control_packet(&rx_buf) {
+                // 尝试处理控制命令（PING, GET_STATUS, GET_CAPABILITIES）
+                if let Some(resp) = parse::handle_control_packet(&rx_buf, &current_config) {
                     let _ = DATA_CHANNEL_TX.try_send(resp);
                 }
             }
 
-            // 配置变化 → 通知主机
+            // 配置变化 → 更新本地跟踪 + 通知主机
             rmk::embassy_futures::select::Either::Second(config) => {
+                current_config = config;
                 let mut buf = [0u8; 64];
                 if let Some(_n) = build_config_changed(&mut buf, &config) {
                     let _ = DATA_CHANNEL_TX.try_send(buf);

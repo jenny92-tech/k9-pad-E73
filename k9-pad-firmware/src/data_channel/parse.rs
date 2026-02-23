@@ -1,11 +1,16 @@
 // INPUT:  k9_datachannel_proto, super::DisplayCommand
 // OUTPUT: parse_display_packet(), handle_control_packet()
-// POS:    协议解析：BLE 包 → DisplayCommand 或控制响应
+// POS:    协议解析：BLE 包 → DisplayCommand 或控制响应（含 GetCapabilities）
 
 use heapless::String;
 use k9_datachannel_proto::*;
 
 use super::DisplayCommand;
+
+// Firmware version — keep in sync with Cargo.toml `version = "0.2.0"`
+const FW_MAJOR: u8 = 0;
+const FW_MINOR: u8 = 2;
+const FW_PATCH: u8 = 0;
 
 /// 解析一个完整的 64 字节包，返回 DisplayCommand（如果是 SET_DISPLAY）
 pub fn parse_display_packet(buf: &[u8]) -> Option<DisplayCommand> {
@@ -63,8 +68,11 @@ pub fn parse_display_packet(buf: &[u8]) -> Option<DisplayCommand> {
     }
 }
 
-/// 处理非显示命令（PING, GET_STATUS 等）
-pub fn handle_control_packet(buf: &[u8]) -> Option<[u8; 64]> {
+/// 处理非显示命令（PING, GET_STATUS, GET_CAPABILITIES 等）
+///
+/// `current_config` is the latest `PadConfig` tracked by the data channel task,
+/// used to reply to `GetStatus` with real device state.
+pub fn handle_control_packet(buf: &[u8], current_config: &PadConfig) -> Option<[u8; 64]> {
     let header = PacketHeader::decode(buf).ok()?;
 
     match header.cmd {
@@ -74,12 +82,34 @@ pub fn handle_control_packet(buf: &[u8]) -> Option<[u8; 64]> {
             Some(resp)
         }
         CommandId::GetStatus => {
-            // 读取当前配置并回复
-            // 配置通过 DATA_CHANNEL_CONFIG watch 获取
-            // 这里用默认值，实际值由 display loop 推送
-            let config = PadConfig::default();
             let mut resp = [0u8; 64];
-            build_status_resp(&mut resp, &config)?;
+            build_status_resp(&mut resp, current_config)?;
+            Some(resp)
+        }
+        CommandId::GetCapabilities => {
+            let caps = DeviceCapabilities {
+                protocol_version: PROTOCOL_VERSION,
+                firmware_major: FW_MAJOR,
+                firmware_minor: FW_MINOR,
+                firmware_patch: FW_PATCH,
+                hw_version: 1,
+                max_slots: 8,
+                supported_cmds: (1u16 << CommandId::SetDisplay as u8)
+                    | (1u16 << CommandId::GetStatus as u8)
+                    | (1u16 << CommandId::StatusResp as u8)
+                    | (1u16 << CommandId::ConfigChanged as u8)
+                    | (1u16 << CommandId::Ack as u8)
+                    | (1u16 << CommandId::GetCapabilities as u8)
+                    | (1u16 << CommandId::CapabilitiesResp as u8),
+                supported_types: (1u16 << DataType::Text as u8)
+                    | (1u16 << DataType::Numeric as u8)
+                    | (1u16 << DataType::Progress as u8)
+                    | (1u16 << DataType::IconId as u8)
+                    | (1u16 << DataType::KeyValue as u8)
+                    | (1u16 << DataType::Clear as u8),
+            };
+            let mut resp = [0u8; 64];
+            build_capabilities_resp(&mut resp, &caps)?;
             Some(resp)
         }
         _ => None,

@@ -24,5 +24,5 @@
 | 名称 | 文件 | 职责 |
 |------|------|------|
 | 模块入口 | `mod.rs` | 类型定义（DisplayCommand, DisplayDataCache）+ 通道 statics + re-export |
-| 协议解析 | `parse.rs` | parse_display_packet(), handle_control_packet() |
+| 协议解析 | `parse.rs` | parse_display_packet(), handle_control_packet(buf, &PadConfig)（含 GetCapabilities 处理） |
 | 主任务 | `task.rs` | run_data_channel() 异步任务（桥接 RMK 收发） |

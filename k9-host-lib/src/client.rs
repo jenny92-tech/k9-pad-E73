@@ -1,5 +1,6 @@
 use k9_datachannel_proto::{
-    self as proto, CommandId, DataType, PacketHeader, PadConfig, HEADER_SIZE, MAX_PACKET_SIZE,
+    self as proto, CommandId, DataType, DeviceCapabilities, PacketHeader, PadConfig, HEADER_SIZE,
+    MAX_PACKET_SIZE,
 };
 use log::debug;
 use thiserror::Error;
@@ -138,6 +139,37 @@ impl<T: Transport> K9Client<T> {
         Ok(())
     }
 
+    /// Request device capabilities. Returns `DeviceCapabilities` on success.
+    ///
+    /// If the device is running legacy firmware that doesn't support
+    /// `GetCapabilities`, the transport will time out — the caller should
+    /// handle `ClientError::Transport(Timeout)` as a V1-baseline fallback.
+    pub async fn get_capabilities(&self) -> Result<DeviceCapabilities, ClientError> {
+        let _guard = self.request_lock.lock().await;
+
+        let mut buf = [0u8; MAX_PACKET_SIZE];
+        let n = proto::build_get_capabilities(&mut buf)
+            .ok_or_else(|| ClientError::Protocol("Failed to build capabilities request".into()))?;
+        self.transport.send(&buf[..n]).await?;
+
+        let response = self.transport.receive().await?;
+        let header = PacketHeader::decode(&response)
+            .map_err(|e| ClientError::Protocol(format!("Invalid response header: {e:?}")))?;
+
+        if header.cmd != CommandId::CapabilitiesResp
+            || header.data_type != DataType::DeviceInfo
+        {
+            return Err(ClientError::Protocol(format!(
+                "Unexpected response: cmd={:?} type={:?}",
+                header.cmd, header.data_type
+            )));
+        }
+
+        let payload = &response[HEADER_SIZE..HEADER_SIZE + header.payload_len as usize];
+        DeviceCapabilities::decode(payload)
+            .ok_or_else(|| ClientError::Protocol("Failed to decode DeviceCapabilities".into()))
+    }
+
     /// Get a reference to the underlying transport.
     pub fn transport(&self) -> &T {
         &self.transport
@@ -230,6 +262,13 @@ mod tests {
     fn ack_packet() -> Vec<u8> {
         let mut buf = [0u8; MAX_PACKET_SIZE];
         let n = proto::build_ack(&mut buf).unwrap();
+        buf[..n].to_vec()
+    }
+
+    /// Build a mock CapabilitiesResp packet.
+    fn capabilities_resp_packet(caps: &DeviceCapabilities) -> Vec<u8> {
+        let mut buf = [0u8; MAX_PACKET_SIZE];
+        let n = proto::build_capabilities_resp(&mut buf, caps).unwrap();
         buf[..n].to_vec()
     }
 
@@ -420,6 +459,61 @@ mod tests {
 
         let client = K9Client::new(mock);
         let result = client.get_status().await;
+        assert!(matches!(result, Err(ClientError::Protocol(_))));
+    }
+
+    // ---- get_capabilities ----
+
+    #[tokio::test]
+    async fn get_capabilities_success() {
+        let caps = DeviceCapabilities {
+            protocol_version: proto::PROTOCOL_VERSION,
+            firmware_major: 0,
+            firmware_minor: 2,
+            firmware_patch: 0,
+            hw_version: 1,
+            max_slots: 8,
+            supported_cmds: 0xFF,
+            supported_types: 0x7F,
+        };
+        let mock = MockTransport::new();
+        mock.queue_recv(Ok(capabilities_resp_packet(&caps))).await;
+
+        let client = K9Client::new(mock);
+        let result = client.get_capabilities().await.unwrap();
+
+        assert_eq!(result.protocol_version, proto::PROTOCOL_VERSION);
+        assert_eq!(result.firmware_major, 0);
+        assert_eq!(result.firmware_minor, 2);
+        assert_eq!(result.firmware_patch, 0);
+        assert_eq!(result.hw_version, 1);
+        assert_eq!(result.max_slots, 8);
+
+        // Verify a GetCapabilities packet was sent
+        let sent = client.transport().sent_data().await;
+        assert_eq!(sent[0][0], CommandId::GetCapabilities as u8);
+    }
+
+    #[tokio::test]
+    async fn get_capabilities_timeout_fallback() {
+        let mock = MockTransport::new();
+        mock.queue_recv(Err(TransportError::Timeout)).await;
+
+        let client = K9Client::new(mock);
+        let result = client.get_capabilities().await;
+        assert!(matches!(
+            result,
+            Err(ClientError::Transport(TransportError::Timeout))
+        ));
+    }
+
+    #[tokio::test]
+    async fn get_capabilities_wrong_response() {
+        let mock = MockTransport::new();
+        mock.queue_recv(Ok(pong_packet())).await;
+
+        let client = K9Client::new(mock);
+        let result = client.get_capabilities().await;
         assert!(matches!(result, Err(ClientError::Protocol(_))));
     }
 

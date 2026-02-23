@@ -9,6 +9,8 @@
 ## 逻辑
 
 4 字节头（CMD+TYPE+LEN）+ payload，最大 64 字节。
+Protocol version 1（`PROTOCOL_VERSION` 常量）；支持 `GetCapabilities`/`CapabilitiesResp`
+命令对进行版本协商，`DeviceCapabilities` 结构体描述设备能力（10 bytes wire format）。
 
 ## 约束
 
@@ -19,4 +21,4 @@
 
 | 名称 | 文件 | 职责 |
 |------|------|------|
-| 协议定义 | `src/lib.rs` | CommandId/DataType 枚举 + parse/serialize |
+| 协议定义 | `src/lib.rs` | CommandId/DataType 枚举 + PadConfig/DeviceCapabilities + parse/serialize |

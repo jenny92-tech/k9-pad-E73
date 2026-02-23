@@ -6,6 +6,9 @@
 /// Maximum total packet size (header + payload), aligned with BLE characteristic size and USB CDC.
 pub const MAX_PACKET_SIZE: usize = 64;
 
+/// Protocol revision number. Increment when breaking changes are made.
+pub const PROTOCOL_VERSION: u8 = 1;
+
 /// Header size: CMD(1) + TYPE(1) + LEN(2).
 pub const HEADER_SIZE: usize = 4;
 
@@ -30,6 +33,10 @@ pub enum CommandId {
     ConfigChanged = 0x04,
     /// Keyboard -> Host: acknowledgement.
     Ack = 0x05,
+    /// Host -> Keyboard: request device capabilities.
+    GetCapabilities = 0x06,
+    /// Keyboard -> Host: capabilities response.
+    CapabilitiesResp = 0x07,
     /// Bidirectional heartbeat.
     Ping = 0x10,
     /// Bidirectional heartbeat response.
@@ -44,6 +51,8 @@ impl CommandId {
             0x03 => Some(Self::StatusResp),
             0x04 => Some(Self::ConfigChanged),
             0x05 => Some(Self::Ack),
+            0x06 => Some(Self::GetCapabilities),
+            0x07 => Some(Self::CapabilitiesResp),
             0x10 => Some(Self::Ping),
             0x11 => Some(Self::Pong),
             _ => None,
@@ -79,6 +88,10 @@ pub enum DataType {
     // -- Config types (used with ConfigChanged / StatusResp) --
     /// `active_pad(1B) + enabled_functions_bitmask(2B LE)`
     PadConfig = 0x10,
+
+    // -- Device info types (used with CapabilitiesResp) --
+    /// `DeviceCapabilities` struct (10 bytes)
+    DeviceInfo = 0x11,
 }
 
 impl DataType {
@@ -91,6 +104,7 @@ impl DataType {
             0x05 => Some(Self::KeyValue),
             0x06 => Some(Self::Clear),
             0x10 => Some(Self::PadConfig),
+            0x11 => Some(Self::DeviceInfo),
             _ => None,
         }
     }
@@ -199,6 +213,74 @@ impl PadConfig {
 }
 
 // ---------------------------------------------------------------------------
+// Device Capabilities
+// ---------------------------------------------------------------------------
+
+/// Device capability descriptor returned by `CapabilitiesResp`.
+///
+/// Wire format (10 bytes):
+/// ```text
+/// protocol_version(1B) + firmware_major(1B) + firmware_minor(1B) + firmware_patch(1B)
+/// + hw_version(1B) + max_slots(1B) + supported_cmds(2B LE) + supported_types(2B LE)
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeviceCapabilities {
+    /// Protocol revision (starts at 1).
+    pub protocol_version: u8,
+    /// Firmware major version.
+    pub firmware_major: u8,
+    /// Firmware minor version.
+    pub firmware_minor: u8,
+    /// Firmware patch version.
+    pub firmware_patch: u8,
+    /// Hardware board revision (0 = unknown).
+    pub hw_version: u8,
+    /// Number of display slots supported.
+    pub max_slots: u8,
+    /// Bitmask of supported `CommandId` values (bit N = command with value N).
+    pub supported_cmds: u16,
+    /// Bitmask of supported `DataType` values (bit N = data type with value N).
+    pub supported_types: u16,
+}
+
+impl DeviceCapabilities {
+    pub const WIRE_SIZE: usize = 10;
+
+    pub fn encode(&self, buf: &mut [u8]) -> Option<usize> {
+        if buf.len() < Self::WIRE_SIZE {
+            return None;
+        }
+        buf[0] = self.protocol_version;
+        buf[1] = self.firmware_major;
+        buf[2] = self.firmware_minor;
+        buf[3] = self.firmware_patch;
+        buf[4] = self.hw_version;
+        buf[5] = self.max_slots;
+        buf[6] = (self.supported_cmds & 0xFF) as u8;
+        buf[7] = ((self.supported_cmds >> 8) & 0xFF) as u8;
+        buf[8] = (self.supported_types & 0xFF) as u8;
+        buf[9] = ((self.supported_types >> 8) & 0xFF) as u8;
+        Some(Self::WIRE_SIZE)
+    }
+
+    pub fn decode(buf: &[u8]) -> Option<Self> {
+        if buf.len() < Self::WIRE_SIZE {
+            return None;
+        }
+        Some(Self {
+            protocol_version: buf[0],
+            firmware_major: buf[1],
+            firmware_minor: buf[2],
+            firmware_patch: buf[3],
+            hw_version: buf[4],
+            max_slots: buf[5],
+            supported_cmds: u16::from_le_bytes([buf[6], buf[7]]),
+            supported_types: u16::from_le_bytes([buf[8], buf[9]]),
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Packet builder helpers
 // ---------------------------------------------------------------------------
 
@@ -285,6 +367,26 @@ pub fn build_set_progress(buf: &mut [u8], slot: u8, value: u8) -> Option<usize> 
 /// Build a `SET_DISPLAY` clear packet: `slot_id(1B)`.
 pub fn build_set_clear(buf: &mut [u8], slot: u8) -> Option<usize> {
     build_packet(buf, CommandId::SetDisplay, DataType::Clear, &[slot])
+}
+
+/// Build a `GET_CAPABILITIES` request packet (no payload).
+pub fn build_get_capabilities(buf: &mut [u8]) -> Option<usize> {
+    build_packet(buf, CommandId::GetCapabilities, DataType::DeviceInfo, &[])
+}
+
+/// Build a `CAPABILITIES_RESP` packet from a `DeviceCapabilities`.
+pub fn build_capabilities_resp(
+    buf: &mut [u8],
+    caps: &DeviceCapabilities,
+) -> Option<usize> {
+    let mut payload = [0u8; DeviceCapabilities::WIRE_SIZE];
+    caps.encode(&mut payload)?;
+    build_packet(
+        buf,
+        CommandId::CapabilitiesResp,
+        DataType::DeviceInfo,
+        &payload,
+    )
 }
 
 /// Build an `ACK` packet.
@@ -431,6 +533,8 @@ mod tests {
         assert_eq!(CommandId::from_u8(0x03), Some(CommandId::StatusResp));
         assert_eq!(CommandId::from_u8(0x04), Some(CommandId::ConfigChanged));
         assert_eq!(CommandId::from_u8(0x05), Some(CommandId::Ack));
+        assert_eq!(CommandId::from_u8(0x06), Some(CommandId::GetCapabilities));
+        assert_eq!(CommandId::from_u8(0x07), Some(CommandId::CapabilitiesResp));
         assert_eq!(CommandId::from_u8(0x10), Some(CommandId::Ping));
         assert_eq!(CommandId::from_u8(0x11), Some(CommandId::Pong));
         assert_eq!(CommandId::from_u8(0x00), None);
@@ -446,6 +550,69 @@ mod tests {
         assert_eq!(DataType::from_u8(0x05), Some(DataType::KeyValue));
         assert_eq!(DataType::from_u8(0x06), Some(DataType::Clear));
         assert_eq!(DataType::from_u8(0x10), Some(DataType::PadConfig));
+        assert_eq!(DataType::from_u8(0x11), Some(DataType::DeviceInfo));
         assert_eq!(DataType::from_u8(0x00), None);
+    }
+
+    #[test]
+    fn device_capabilities_round_trip() {
+        let caps = DeviceCapabilities {
+            protocol_version: PROTOCOL_VERSION,
+            firmware_major: 0,
+            firmware_minor: 2,
+            firmware_patch: 0,
+            hw_version: 1,
+            max_slots: 8,
+            supported_cmds: 0x1234,
+            supported_types: 0xABCD,
+        };
+        let mut buf = [0u8; DeviceCapabilities::WIRE_SIZE];
+        assert_eq!(caps.encode(&mut buf), Some(10));
+        let decoded = DeviceCapabilities::decode(&buf).unwrap();
+        assert_eq!(caps, decoded);
+    }
+
+    #[test]
+    fn device_capabilities_decode_too_short() {
+        let buf = [0u8; 9]; // needs 10
+        assert!(DeviceCapabilities::decode(&buf).is_none());
+    }
+
+    #[test]
+    fn build_capabilities_request_packet() {
+        let mut buf = [0u8; 64];
+        let n = build_get_capabilities(&mut buf).unwrap();
+        assert_eq!(n, HEADER_SIZE); // no payload
+        let header = PacketHeader::decode(&buf).unwrap();
+        assert_eq!(header.cmd, CommandId::GetCapabilities);
+        assert_eq!(header.data_type, DataType::DeviceInfo);
+        assert_eq!(header.payload_len, 0);
+    }
+
+    #[test]
+    fn build_capabilities_resp_round_trip() {
+        let caps = DeviceCapabilities {
+            protocol_version: PROTOCOL_VERSION,
+            firmware_major: 1,
+            firmware_minor: 3,
+            firmware_patch: 7,
+            hw_version: 2,
+            max_slots: 8,
+            supported_cmds: (1u16 << 0x01) | (1u16 << 0x02) | (1u16 << 0x06),
+            supported_types: (1u16 << 0x01) | (1u16 << 0x03),
+        };
+        let mut buf = [0u8; 64];
+        let n = build_capabilities_resp(&mut buf, &caps).unwrap();
+        assert_eq!(n, HEADER_SIZE + DeviceCapabilities::WIRE_SIZE);
+
+        let header = PacketHeader::decode(&buf).unwrap();
+        assert_eq!(header.cmd, CommandId::CapabilitiesResp);
+        assert_eq!(header.data_type, DataType::DeviceInfo);
+        assert_eq!(header.payload_len as usize, DeviceCapabilities::WIRE_SIZE);
+
+        let decoded =
+            DeviceCapabilities::decode(&buf[HEADER_SIZE..HEADER_SIZE + header.payload_len as usize])
+                .unwrap();
+        assert_eq!(decoded, caps);
     }
 }
