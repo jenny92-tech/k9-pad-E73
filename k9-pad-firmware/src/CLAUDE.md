@@ -15,6 +15,7 @@
 - `no_std`，Embassy async
 - `defmt` logging
 - `unsafe` 必须附带 `// SAFETY:` 注释
+- 文件不超过 500 行
 
 ## 业务域清单
 
@@ -22,13 +23,12 @@
 |------|------------|------|
 | 程序入口 | `main.rs` | pre_init + RMK 键盘启动 |
 | 库入口 | `lib.rs` | 测试用入口，条件 no_std |
-| 显示驱动 | `display.rs` | SH1107 OLED 驱动 + 首页/菜单/数据通道渲染 |
+| 硬件驱动 | `driver/` | SH1107 OLED I2C 驱动 + Flash KV 存储 |
+| 显示系统 | `display/` | OLED 显示主循环 + UI 渲染（首页/菜单/数据通道） |
 | 数据通道 | `data_channel.rs` | BLE GATT 数据接收、协议解析、DisplayCommand 分发 |
-| 电池管理 | `battery.rs` | ADC 采样、电量计算、BATTERY_STATUS Watch |
-| 键码定义 | `keyboard.rs` | KeyCode 枚举（占位，对接 RMK） |
+| 电池管理 | `battery.rs` | SAADC ADC 采样、充电检测、电量计算、BATTERY_STATUS Watch |
 | 模式管理 | `mode.rs` | KeyboardMode 枚举 + CURRENT_MODE Watch |
-| Flash 设置 | `flash_settings.rs` | 亮度等持久化设置（NVMC 读写 0xF3000 页） |
-| 完整性校验 | `integrity.rs` | CRC32 启动校验，损坏则进 DFU |
+| 应用设置 | `settings.rs` | 亮度等持久化设置 key 定义 + SETTINGS 全局实例 |
 | 菜单系统 | `menu/` | WouoUI 菜单输入控制 + 状态管理 |
 | OLED UI 框架 | `wououi/` | WouoUI C 库 FFI 绑定 |
 | 独立二进制 | `bin/` | 测试/调试用独立固件 |

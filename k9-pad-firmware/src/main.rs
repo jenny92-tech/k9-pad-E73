@@ -13,10 +13,11 @@ use panic_probe as _;
 
 mod battery;
 mod data_channel;
-mod flash_settings;
-mod mode;
+mod driver;
 mod display;
+mod mode;
 mod menu;
+mod settings;
 mod wououi;
 
 pub use battery::*;

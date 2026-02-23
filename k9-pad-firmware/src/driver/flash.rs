@@ -1,47 +1,11 @@
 // INPUT:  nRF52840 NVMC registers
-// OUTPUT: FlashStore struct, SETTINGS instance, keys module
-// POS:    通用 log-structured flash KV 存储，nRF52840 NVMC 单页实现
+// OUTPUT: FlashStore struct (new, read, write)
+// POS:    通用 log-structured flash KV 驱动，直接操作 NVMC 寄存器
 
 //! Log-structured flash key-value store for nRF52840.
 //!
 //! Stores `u8` key-value pairs on a single flash page using append-only log.
 //! Each write appends a 4-byte entry; page auto-erases when full (~1024 writes per cycle).
-//!
-//! ## Usage
-//!
-//! ```ignore
-//! use crate::flash_settings::{SETTINGS, keys};
-//!
-//! // Read with default
-//! let brightness = SETTINGS.read(keys::BRIGHTNESS, 80);
-//!
-//! // Write (append to log)
-//! SETTINGS.write(keys::BRIGHTNESS, new_val);
-//!
-//! // Indexed keys (e.g. per-pad settings)
-//! for pad in 0..5u8 {
-//!     let mask = SETTINGS.read(keys::DC_FUNCTIONS_PAD0 + pad, 0);
-//! }
-//! ```
-
-/// Well-known setting keys for K9-Pad.
-///
-/// Add new keys here as `pub const`. Indexed keys use a base + offset pattern.
-pub mod keys {
-    pub const BRIGHTNESS: u8 = 0x00;
-    pub const SCREEN_TIMEOUT: u8 = 0x01;
-    /// Per-pad data channel functions (pad 0-4 → key 0x02-0x06).
-    /// Use as `DC_FUNCTIONS_PAD0 + pad_index`.
-    pub const DC_FUNCTIONS_PAD0: u8 = 0x02;
-    /// Quick Menu: long-press ESC enters menu directly when screen is off.
-    pub const QUICK_MENU: u8 = 0x07;
-}
-
-/// Global settings store instance.
-///
-/// Uses flash page at 0xF3000 (4KB, last page before bootloader).
-/// Magic bytes `K9` (0x4B, 0x39) identify valid entries.
-pub static SETTINGS: FlashStore = FlashStore::new(0x000F_3000, 4096, [0x4B, 0x39]);
 
 /// Log-structured flash key-value store for nRF52840 NVMC.
 ///
