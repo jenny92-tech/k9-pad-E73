@@ -1,5 +1,5 @@
 // INPUT:  WouoUI.h
-// OUTPUT: K9Pad_MenuInit() — 8 主菜单项 + Layer/User/Settings/About 子页面 + SetBrightness + ScreenTimeout
+// OUTPUT: K9Pad_MenuInit() — 8 主菜单项 + Layer/User/Settings/About 子页面 + SetBrightness + ScreenTimeout + QuickMenu
 // POS:    K9-Pad 专用菜单树定义，被 WouoUI_port.c 调用
 /**
  * WouoUI K9-Pad Menu Configuration
@@ -56,7 +56,7 @@ static char* screen_timeout_options[5] = {
 #define MAIN_PAGE_NUM       8
 #define PAD_PAGE_NUM        5
 #define USER_PAGE_NUM       5
-#define SETTINGS_PAGE_NUM   6
+#define SETTINGS_PAGE_NUM   7
 #define ABOUT_PAGE_NUM      4
 
 //--------主菜单选项
@@ -200,6 +200,7 @@ static Option settings_option_array[SETTINGS_PAGE_NUM] = {
     {.text = (char *)"@ BLE", .val = 1},
     {.text = (char *)"~ Brightness", .val = 80},
     {.text = (char *)"> Screen Off", .content = (char*)"20s"},
+    {.text = (char *)"@ Quick Menu", .val = 0},
     {.text = (char *)"! DFU Mode"},
     {.text = (char *)"! Bootloader Mode"}
 };
@@ -328,13 +329,15 @@ static bool SettingsPage_Callback(const Page *cur_page, InputMsg msg) {
         case 3: // Screen Off - jump to ListWin selector
             WouoUI_JumpToPage((PageAddr)cur_page, &screen_timeout_win);
             break;
-        case 4: // DFU Mode - show confirmation dialog
+        case 4: // Quick Menu toggle - auto handled by @ checkbox
+            break;
+        case 5: // DFU Mode - show confirmation dialog
             pending_dfu_action = 1;
             dfu_conf_win.content = (char*)"Enter DFU Mode?";
             dfu_conf_win.conf_ret = false; // Default to "No" for safety
             WouoUI_JumpToPage((PageAddr)cur_page, &dfu_conf_win);
             break;
-        case 5: // Bootloader Mode - show confirmation dialog
+        case 6: // Bootloader Mode - show confirmation dialog
             pending_dfu_action = 2;
             dfu_conf_win.content = (char*)"Enter Bootloader?";
             dfu_conf_win.conf_ret = false; // Default to "No" for safety
@@ -357,10 +360,15 @@ void WouoUI_UserInit(void) {
 
     // Layer 0/1/2/3/4 子页面
     WouoUI_ListPageInit(&pad_a_page, PAD_PAGE_NUM, pad_a_option_array, Setting_none, PadPage_Callback);
+    WouoUI_ListPageSetFirstSelectable(&pad_a_page, 1);
     WouoUI_ListPageInit(&pad_b_page, PAD_PAGE_NUM, pad_b_option_array, Setting_none, PadPage_Callback);
+    WouoUI_ListPageSetFirstSelectable(&pad_b_page, 1);
     WouoUI_ListPageInit(&pad_c_page, PAD_PAGE_NUM, pad_c_option_array, Setting_none, PadPage_Callback);
+    WouoUI_ListPageSetFirstSelectable(&pad_c_page, 1);
     WouoUI_ListPageInit(&pad_d_page, PAD_PAGE_NUM, pad_d_option_array, Setting_none, PadPage_Callback);
+    WouoUI_ListPageSetFirstSelectable(&pad_d_page, 1);
     WouoUI_ListPageInit(&pad_e_page, PAD_PAGE_NUM, pad_e_option_array, Setting_none, PadPage_Callback);
+    WouoUI_ListPageSetFirstSelectable(&pad_e_page, 1);
 
     // User 页面 (radio buttons for BLE multi-device)
     WouoUI_ListPageInit(&user_page, USER_PAGE_NUM, user_option_array, Setting_radio, UserPage_Callback);
@@ -465,6 +473,24 @@ uint16_t WouoUI_K9Pad_GetEnabledFunctions(uint8_t pad_index) {
     return mask;
 }
 
+// Set enabled data channel functions for a pad from bitmask
+// Bit 1: Volume, Bit 2: Subs, Bit 3: Time
+void WouoUI_K9Pad_SetEnabledFunctions(uint8_t pad_index, uint16_t mask) {
+    if (pad_index > 4) return;
+    Option *opts;
+    switch (pad_index) {
+        case 0: opts = pad_a_option_array; break;
+        case 1: opts = pad_b_option_array; break;
+        case 2: opts = pad_c_option_array; break;
+        case 3: opts = pad_d_option_array; break;
+        case 4: opts = pad_e_option_array; break;
+        default: return;
+    }
+    opts[2].val = (mask & (1 << 1)) ? 1 : 0;  // Volume
+    opts[3].val = (mask & (1 << 2)) ? 1 : 0;  // Subs
+    opts[4].val = (mask & (1 << 3)) ? 1 : 0;  // Time
+}
+
 // Check if data channel is enabled for a pad (any function checkbox is checked)
 uint8_t WouoUI_K9Pad_IsDataChannelEnabled(uint8_t pad_index) {
     return WouoUI_K9Pad_GetEnabledFunctions(pad_index) != 0 ? 1 : 0;
@@ -488,6 +514,16 @@ uint8_t WouoUI_K9Pad_GetUSBBootloaderRequested(void) {
 // Clear USB bootloader request flag
 void WouoUI_K9Pad_ClearUSBBootloaderRequested(void) {
     g_usb_bl_requested = 0;
+}
+
+// Get Quick Menu enabled state (1=on, 0=off)
+uint8_t WouoUI_K9Pad_GetQuickMenuEnabled(void) {
+    return (uint8_t)(settings_option_array[4].val != 0);
+}
+
+// Set Quick Menu enabled state
+void WouoUI_K9Pad_SetQuickMenuEnabled(uint8_t val) {
+    settings_option_array[4].val = val ? 1 : 0;
 }
 
 // Get screen timeout in seconds from ListWin selection

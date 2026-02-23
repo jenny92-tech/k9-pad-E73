@@ -23,6 +23,7 @@ use embedded_graphics::{
 use embedded_hal_async::i2c::I2c;
 
 use crate::data_channel::{DisplayDataCache, DisplaySlotData, DISPLAY_DATA};
+use crate::flash_settings::{SETTINGS, keys};
 use crate::menu::{MenuInput, MENU_INPUT, MENU_STATE, MenuState, PageId};
 use crate::mode::CURRENT_MODE;
 use crate::battery::BATTERY_STATUS;
@@ -395,9 +396,9 @@ where
 {
     let _ = display.clear(BinaryColor::Off);
 
-    // 右上角状态图标区 (蓝牙 + 电池)
-    draw_ble_icon(display, 103, 2, ble_connected);
-    draw_battery_icon(display, 115, 3, battery_percent);
+    // 右上角状态图标区 (蓝牙 + 电池) — 与 data_channel_ui 坐标一致
+    draw_ble_icon(display, 98, 1, ble_connected);
+    draw_battery_icon(display, 112, 2, battery_percent);
 
     // 模式样式
     let title_style = MonoTextStyle::new(&FONT_9X15_BOLD, BinaryColor::On);
@@ -684,7 +685,7 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
     wououi.init(MENU_FRAME_MS);
 
     // 从 flash 恢复亮度设置
-    let saved_brightness = crate::flash_settings::flash_read_brightness();
+    let saved_brightness = SETTINGS.read(keys::BRIGHTNESS, 80);
     wououi.set_brightness(saved_brightness);
     {
         const MIN_CONTRAST: u16 = 5;
@@ -693,11 +694,28 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
         defmt::info!("Restored brightness: {}% (contrast={})", saved_brightness, contrast);
     }
 
+    // 从 flash 恢复每个 Pad 的数据通道设置
+    let mut confirmed_dc_functions: [u16; 5] = [0; 5];
+    for pad in 0..5u8 {
+        let mask = SETTINGS.read(keys::DC_FUNCTIONS_PAD0 + pad, 0);
+        if mask != 0 {
+            wououi.set_enabled_functions(pad, mask as u16);
+            confirmed_dc_functions[pad as usize] = mask as u16;
+            defmt::info!("Restored dc_functions[{}] = 0x{:02x}", pad, mask);
+        }
+    }
+
     // 从 flash 恢复屏幕超时设置
-    let saved_timeout = crate::flash_settings::flash_read_screen_timeout();
+    let saved_timeout = SETTINGS.read(keys::SCREEN_TIMEOUT, 20);
     wououi.set_screen_timeout(saved_timeout);
     let mut screen_timeout_secs: u8 = saved_timeout;
     let mut confirmed_screen_timeout: u8 = saved_timeout;
+
+    // 从 flash 恢复 Quick Menu 设置
+    let saved_quick_menu = SETTINGS.read(keys::QUICK_MENU, 0);
+    wououi.set_quick_menu_enabled(saved_quick_menu != 0);
+    let mut confirmed_quick_menu: bool = saved_quick_menu != 0;
+    defmt::info!("Restored quick_menu: {}", saved_quick_menu != 0);
 
     // 屏幕睡眠状态
     let mut screen_on = true;
@@ -789,6 +807,7 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
 
             // 屏幕关闭时，任何输入唤醒屏幕但不转发给菜单系统
             if !screen_on {
+                let quick_menu_trigger = input == MenuInput::EnterMenu && wououi.get_quick_menu_enabled();
                 defmt::info!("Screen wake: input while screen off");
                 display.send_command(0xAF).await.ok(); // Display ON
                 {
@@ -798,6 +817,12 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
                 }
                 screen_on = true;
                 last_screen_activity = now;
+                if quick_menu_trigger {
+                    menu_active = true;
+                    wououi.enter_menu();
+                    menu_idle_ticks = 0;
+                    defmt::info!("Quick menu: wake + enter menu");
+                }
                 continue; // consume input, don't forward
             }
 
@@ -986,7 +1011,7 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
             let confirmed = wououi.get_brightness();
             if confirmed != confirmed_brightness {
                 confirmed_brightness = confirmed;
-                crate::flash_settings::flash_write_brightness(confirmed);
+                SETTINGS.write(keys::BRIGHTNESS, confirmed);
             }
 
             // 持久化屏幕超时：检测 ListWin 确认值变化
@@ -994,8 +1019,16 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
             if timeout != confirmed_screen_timeout {
                 confirmed_screen_timeout = timeout;
                 screen_timeout_secs = timeout;
-                crate::flash_settings::flash_write_screen_timeout(timeout);
+                SETTINGS.write(keys::SCREEN_TIMEOUT, timeout);
                 defmt::info!("Screen timeout changed: {}s", timeout);
+            }
+
+            // 持久化 Quick Menu 设置
+            let quick_menu = wououi.get_quick_menu_enabled();
+            if quick_menu != confirmed_quick_menu {
+                confirmed_quick_menu = quick_menu;
+                SETTINGS.write(keys::QUICK_MENU, if quick_menu { 1 } else { 0 });
+                defmt::info!("Quick menu changed: {}", quick_menu);
             }
 
             // 检测 BLE 开关变化
@@ -1042,6 +1075,25 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
                         new_config.enabled_functions
                     );
                 }
+            }
+
+            // 持久化数据通道设置：回到主菜单时保存（子页面设置已确认）
+            {
+                let on_home = wououi.is_on_home_page();
+                static mut PREV_ON_HOME: bool = true;
+                // SAFETY: 单线程 display task 内部使用
+                let was_on_home = unsafe { PREV_ON_HOME };
+                if on_home && !was_on_home {
+                    // 刚从子页面返回主菜单，保存变更的设置
+                    for pad in 0..5u8 {
+                        let funcs = wououi.get_enabled_functions(pad);
+                        if funcs != confirmed_dc_functions[pad as usize] {
+                            confirmed_dc_functions[pad as usize] = funcs;
+                            SETTINGS.write(keys::DC_FUNCTIONS_PAD0 + pad, funcs as u8);
+                        }
+                    }
+                }
+                unsafe { PREV_ON_HOME = on_home };
             }
 
             // 更新空闲计时器
@@ -1129,6 +1181,7 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
             let prev = unsafe { PREV_ACTIVE };
             if new_active != prev {
                 unsafe { PREV_ACTIVE = new_active };
+
                 // 同步 RMK 菜单模式标志，控制按键/编码器拦截
                 crate::menu::set_rmk_menu_mode(new_active);
                 let state = MenuState {

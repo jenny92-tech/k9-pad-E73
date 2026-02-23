@@ -458,6 +458,7 @@ void WouoUI_ListPageInit(
     lp->page_setting = page_setting;
     lp->item_num = item_num;
     lp->select_item = 0;
+    lp->first_selectable = 0;
     lp->option_array = option_array;
     lp->line_n = WOUOUI_BUFF_HEIGHT / LIST_LINE_H;
     for (uint8_t i = 0; i < lp->item_num; i++)
@@ -468,6 +469,15 @@ void WouoUI_ListPageInit(
             lp->option_array[i].text = (char*)WOUOUI_WIN_TXT_DEFAULT; //使用默认文本提示noset
             WOUOUI_LOG_E("The text of %d th item in ListPgae NO set!!!", i);        
         }
+    }
+}
+void WouoUI_ListPageSetFirstSelectable(ListPage *lp, uint8_t first_selectable)
+{
+    lp->first_selectable = first_selectable;
+    if (lp->select_item < first_selectable) {
+        const uint8_t list_line_h = LIST_LINE_H;
+        lp->select_item = first_selectable;
+        lp->ind_y_tgt = first_selectable * list_line_h;
     }
 }
 //list的接口函数
@@ -494,7 +504,7 @@ void WouoUI_ListPageLastItem(ListPage *lp)
     WouoUI_CanvasSlideStrReset(&(p_cur_ui->lp_var.opt_text_ss));
     WouoUI_CanvasSlideStrReset(&(p_cur_ui->lp_var.opt_val_ss));
     const uint8_t list_line_h = LIST_LINE_H; //因为行高是用宏计算的，这里用变量保存不用每次都计算
-    if (lp->select_item == 0) {                                                               // 选中第一个的话
+    if (lp->select_item <= lp->first_selectable) {                                              // 选中第一个可选项的话
         if (p_cur_ui->upara->loop_param[LIST_LOOP]) {                                         // 同时loop参数开的话，从顶部滑动到底部
             lp->select_item = lp->item_num - 1;                                               // 选中最后一个
             if (lp->item_num > lp->line_n) {                                                  // 数目超出一页的最大数目
@@ -527,10 +537,10 @@ void WouoUI_ListPageNextItem(ListPage* lp)
     WouoUI_CanvasSlideStrReset(&(p_cur_ui->lp_var.opt_val_ss));
     const uint8_t list_line_h = LIST_LINE_H; //因为行高是用宏计算的，这里用变量保存不用每次都计算
     if (lp->select_item == (lp->item_num) - 1) {                   // 到最后一个选项了
-        if (p_cur_ui->upara->loop_param[LIST_LOOP]) {              // loop开关开,全部回到顶部
+        if (p_cur_ui->upara->loop_param[LIST_LOOP]) {              // loop开关开,回到第一个可选项
             p_cur_ui->lp_var.optInt.pos_tgt = 0;
-            lp->select_item = 0;
-            lp->ind_y_tgt = 0;
+            lp->select_item = lp->first_selectable;
+            lp->ind_y_tgt = lp->first_selectable * list_line_h;
         }
     } else { // 不是最后一个选项
         lp->select_item++;

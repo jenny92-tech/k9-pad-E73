@@ -94,6 +94,9 @@ extern "C" {
     /// Get bitmask of enabled data channel functions for a pad
     fn WouoUI_K9Pad_GetEnabledFunctions(pad_index: u8) -> u16;
 
+    /// Set enabled data channel functions for a pad from bitmask
+    fn WouoUI_K9Pad_SetEnabledFunctions(pad_index: u8, mask: u16);
+
     /// Check if DFU mode was requested
     fn WouoUI_K9Pad_GetDFURequested() -> u8;
 
@@ -105,6 +108,12 @@ extern "C" {
 
     /// Clear USB bootloader request flag
     fn WouoUI_K9Pad_ClearUSBBootloaderRequested();
+
+    /// Get Quick Menu enabled state (1=on, 0=off)
+    fn WouoUI_K9Pad_GetQuickMenuEnabled() -> u8;
+
+    /// Set Quick Menu enabled state
+    fn WouoUI_K9Pad_SetQuickMenuEnabled(val: u8);
 
     /// Get screen timeout in seconds (5/10/20/30/60)
     fn WouoUI_K9Pad_GetScreenTimeout() -> u8;
@@ -316,6 +325,17 @@ impl WouoUI {
         unsafe { WouoUI_K9Pad_GetEnabledFunctions(pad) }
     }
 
+    /// Set enabled data channel functions for a pad from bitmask
+    /// Bit 1: Volume, Bit 2: Subs, Bit 3: Time
+    pub fn set_enabled_functions(&mut self, pad: u8, mask: u16) {
+        if !self.initialized {
+            return;
+        }
+        // SAFETY: WouoUI_K9Pad_SetEnabledFunctions writes to option .val fields
+        // in the C menu arrays. The `initialized` check guarantees arrays exist.
+        unsafe { WouoUI_K9Pad_SetEnabledFunctions(pad, mask) }
+    }
+
     /// Check and consume DFU mode request from C callbacks
     pub fn take_dfu_request(&mut self) -> bool {
         if !self.initialized {
@@ -349,6 +369,26 @@ impl WouoUI {
         // SAFETY: WouoUI_K9Pad_SetScreenTimeout writes to screen_timeout_win.sel_str_index
         // and settings_option_array[3].content. The `initialized` check guarantees these exist.
         unsafe { WouoUI_K9Pad_SetScreenTimeout(seconds) }
+    }
+
+    /// Get Quick Menu enabled state
+    pub fn get_quick_menu_enabled(&self) -> bool {
+        if !self.initialized {
+            return false;
+        }
+        // SAFETY: WouoUI_K9Pad_GetQuickMenuEnabled reads settings_option_array[4].val.
+        // Pure read, no side effects.
+        unsafe { WouoUI_K9Pad_GetQuickMenuEnabled() != 0 }
+    }
+
+    /// Set Quick Menu enabled state
+    pub fn set_quick_menu_enabled(&mut self, enabled: bool) {
+        if !self.initialized {
+            return;
+        }
+        // SAFETY: WouoUI_K9Pad_SetQuickMenuEnabled writes to settings_option_array[4].val.
+        // The `initialized` check guarantees the array exists.
+        unsafe { WouoUI_K9Pad_SetQuickMenuEnabled(if enabled { 1 } else { 0 }) }
     }
 
     /// Check and consume USB bootloader request from C callbacks

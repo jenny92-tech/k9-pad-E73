@@ -250,6 +250,7 @@ typedef struct ListPage {     // 列表页面
     PageSetting page_setting; // 页面设置
     uint8_t item_num;         // 页面选项个数，title和icon个数需与此一致
     uint8_t select_item;      // 选中选项
+    uint8_t first_selectable; // 第一个可选中的选项索引（默认0，全部可选）
     Option *option_array;     // 选项类型的数组(由于数组大小不确定，使用指针代替)
     uint8_t line_n;           // = DISP_H / LIST_LINE_H; 屏幕内有多少行选
     int16_t ind_y_tgt;        // 存储指示器y目标坐标
@@ -277,6 +278,13 @@ void WouoUI_ListPageLastItem(ListPage *lp);
  * @attention 此函数只建议在回调函数中使用 
  */
 void WouoUI_ListPageNextItem(ListPage* lp);
+/**
+ * @brief 设置列表页面第一个可选中的选项索引
+ * @param lp 列表页面指针
+ * @param first_selectable 第一个可选中项的索引（0=全部可选，1=跳过标题项）
+ * @note 设置后若当前选中项小于 first_selectable 会自动调整
+ */
+void WouoUI_ListPageSetFirstSelectable(ListPage *lp, uint8_t first_selectable);
 
 /**
  * @brief 获取标题列表页当前选中的选项
