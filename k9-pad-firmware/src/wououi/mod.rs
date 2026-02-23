@@ -79,6 +79,15 @@ extern "C" {
     /// Get selected user index (0=User A, 1=User B, 2=User C)
     fn WouoUI_K9Pad_GetSelectedUser() -> u8;
 
+    /// Set selected user (for syncing menu radio state from Rust side)
+    fn WouoUI_K9Pad_SetSelectedUser(user: u8);
+
+    /// Check if Clear Bond was requested
+    fn WouoUI_K9Pad_GetClearBondRequested() -> u8;
+
+    /// Clear the Clear Bond request flag
+    fn WouoUI_K9Pad_ClearClearBondRequested();
+
     /// Check if menu exit was requested
     fn WouoUI_K9Pad_GetExitRequested() -> u8;
 
@@ -274,6 +283,32 @@ impl WouoUI {
         // SAFETY: WouoUI_K9Pad_GetSelectedUser iterates user_option_array
         // to find the selected radio button. Pure read, no side effects.
         unsafe { WouoUI_K9Pad_GetSelectedUser() }
+    }
+
+    /// Set selected user (sync menu radio state from Rust side)
+    /// user: 0=User A, 1=User B, 2=User C
+    pub fn set_selected_user(&mut self, user: u8) {
+        if !self.initialized {
+            return;
+        }
+        // SAFETY: WouoUI_K9Pad_SetSelectedUser writes to user_option_array[1..3].val.
+        // The `initialized` check guarantees the array exists.
+        unsafe { WouoUI_K9Pad_SetSelectedUser(user) }
+    }
+
+    /// Check and consume Clear Bond request from C callbacks
+    pub fn take_clear_bond_request(&mut self) -> bool {
+        if !self.initialized {
+            return false;
+        }
+        unsafe {
+            if WouoUI_K9Pad_GetClearBondRequested() != 0 {
+                WouoUI_K9Pad_ClearClearBondRequested();
+                true
+            } else {
+                false
+            }
+        }
     }
 
     /// Check and consume exit request from C callbacks

@@ -77,6 +77,15 @@ uint8_t WouoUI_K9Pad_GetBrightness(void);
 // K9-Pad specific: Get selected user index (0=User A, 1=User B, 2=User C)
 uint8_t WouoUI_K9Pad_GetSelectedUser(void);
 
+// K9-Pad specific: Set selected user (for syncing menu radio state from Rust)
+void WouoUI_K9Pad_SetSelectedUser(uint8_t user);
+
+// K9-Pad specific: Check if Clear Bond was requested
+uint8_t WouoUI_K9Pad_GetClearBondRequested(void);
+
+// K9-Pad specific: Clear the Clear Bond request flag
+void WouoUI_K9Pad_ClearClearBondRequested(void);
+
 #ifdef __cplusplus
 }
 #endif

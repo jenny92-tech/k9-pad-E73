@@ -47,6 +47,9 @@ static uint8_t g_dfu_requested = 0;
 //--------USB Bootloader 请求标志 (由 Settings 回调设置，Rust 侧轮询)
 static uint8_t g_usb_bl_requested = 0;
 
+//--------Clear Bond 请求标志 (由 User 页面回调设置，Rust 侧轮询)
+static uint8_t g_clear_bond_requested = 0;
+
 //--------Screen timeout 选项 (ListWin 选择器)
 static char* screen_timeout_options[5] = {
     (char*)"5s", (char*)"10s", (char*)"20s", (char*)"30s", (char*)"1min"
@@ -246,6 +249,7 @@ static bool UserPage_Callback(const Page *cur_page, InputMsg msg) {
     if (opt == NULL) return false;
 
     if (opt->order == 4) { // Clear Bond
+        g_clear_bond_requested = 1;
         WouoUI_MsgWinPageSetContent(&msg_win, (char*)"Bond info cleared!");
         WouoUI_JumpToPage((PageAddr)cur_page, &msg_win);
     }
@@ -487,6 +491,25 @@ uint8_t WouoUI_K9Pad_GetUSBBootloaderRequested(void) {
 // Clear USB bootloader request flag
 void WouoUI_K9Pad_ClearUSBBootloaderRequested(void) {
     g_usb_bl_requested = 0;
+}
+
+// Set selected user (for syncing menu radio state from Rust side)
+// user: 0=User A, 1=User B, 2=User C
+void WouoUI_K9Pad_SetSelectedUser(uint8_t user) {
+    if (user > 2) user = 0;
+    for (uint8_t i = 1; i <= 3; i++) {
+        user_option_array[i].val = (i == user + 1) ? 1 : 0;
+    }
+}
+
+// Check if Clear Bond was requested
+uint8_t WouoUI_K9Pad_GetClearBondRequested(void) {
+    return g_clear_bond_requested;
+}
+
+// Clear the Clear Bond request flag
+void WouoUI_K9Pad_ClearClearBondRequested(void) {
+    g_clear_bond_requested = 0;
 }
 
 // Get Quick Menu enabled state (1=on, 0=off)

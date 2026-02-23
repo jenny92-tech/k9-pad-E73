@@ -38,23 +38,12 @@ unsafe fn pre_init() {
 // RMK keyboard macro
 #[rmk_keyboard]
 mod keyboard {
-    // Add TWI interrupt for display I2C (TWISPI0 is embassy-nrf's name for TWIM0/SPI0)
-    add_interrupt! {
-        TWISPI0 => ::embassy_nrf::twim::InterruptHandler<::embassy_nrf::peripherals::TWISPI0>;
-    }
-
     #[Overwritten(entry)]
     async fn custom_entry() {
         use ::rmk::input_device::Runnable;
 
-        // Initialize display I2C
-        static TWI_BUF: ::static_cell::StaticCell<[u8; 256]> = ::static_cell::StaticCell::new();
-        let twi_buf = TWI_BUF.init([0u8; 256]);
-        let mut twi_config = ::embassy_nrf::twim::Config::default();
-        twi_config.frequency = ::embassy_nrf::twim::Frequency::K400;
-        let twi = ::embassy_nrf::twim::Twim::new(
-            p.TWISPI0, Irqs, p.P0_08, p.P1_09, twi_config, twi_buf
-        );
+        // Display I2C (`i2c`) and reset pin (`reset_pin`) are initialized by
+        // RMK's chip_init from keyboard.toml [display] config.
 
         // Run all tasks: devices + keyboard + RMK + display + data channel
         ::rmk::embassy_futures::join::join(
@@ -66,7 +55,7 @@ mod keyboard {
                 ::rmk::run_rmk(&keymap, driver, &stack, &mut storage, rmk_config)
             ),
             ::rmk::embassy_futures::join::join(
-                crate::run_display(twi, p.P0_06),
+                crate::run_display(i2c, reset_pin),
                 crate::data_channel::run_data_channel()
             )
         ).await;

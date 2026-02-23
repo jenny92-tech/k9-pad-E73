@@ -127,6 +127,12 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
     let mut confirmed_quick_menu: bool = saved_quick_menu != 0;
     defmt::info!("Restored quick_menu: {}", saved_quick_menu != 0);
 
+    // 从 RMK 恢复当前 BLE profile，同步菜单 UI
+    let saved_user = rmk::ble::ACTIVE_PROFILE.load(core::sync::atomic::Ordering::SeqCst);
+    wououi.set_selected_user(saved_user);
+    let mut current_user: u8 = saved_user;
+    defmt::info!("Restored BLE profile: User {}", saved_user);
+
     // 屏幕睡眠状态
     let mut screen_on = true;
     let mut last_screen_activity = Instant::now();
@@ -160,7 +166,6 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
     let mut confirmed_brightness: u8 = saved_brightness;
     let mut last_contrast_write = Instant::now();
     const CONTRAST_MIN_INTERVAL: Duration = Duration::from_millis(100);
-    let mut current_user: u8 = 0;
     // BLE 连接状态：通过 RMK 事件系统订阅（替代有 bug 的 get_connection_state 轮询）
     let mut ble_sub = BleStateChangeEvent::subscriber();
     let mut ble_connected = false;
@@ -445,6 +450,12 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
                 current_user = selected_user;
                 rmk::switch_ble_profile(selected_user);
                 defmt::info!("User switched to User {} (profile {})", selected_user, selected_user);
+            }
+
+            // 检测 Clear Bond 请求
+            if wououi.take_clear_bond_request() {
+                rmk::clear_ble_bond();
+                defmt::info!("Clear bond for User {} (profile {})", current_user, current_user);
             }
 
             // 检测数据通道配置变化，通知主机
