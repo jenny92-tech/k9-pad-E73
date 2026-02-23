@@ -165,6 +165,16 @@ impl FlashStore {
             core::ptr::write_volatile(addr as *mut u32, entry);
             nvmc_wait_ready();
             nvmc_set_mode(0); // Back to read mode
+
+            // Read-back verification: detect flash write failures (rare but possible
+            // on aged flash or if power is interrupted during write)
+            let readback = core::ptr::read_volatile(addr as *const u32);
+            if readback != entry {
+                defmt::error!(
+                    "FlashStore: write verify failed at 0x{:08x} (wrote 0x{:08x}, read 0x{:08x})",
+                    addr, entry, readback
+                );
+            }
         }
     }
 }
@@ -178,6 +188,13 @@ const NVMC_CONFIG: u32 = NVMC_BASE + 0x504;
 const NVMC_ERASEPAGE: u32 = NVMC_BASE + 0x508;
 
 /// Wait for NVMC to become ready.
+///
+/// **Note**: This busy-waits the CPU. On nRF52840, during NVMC write/erase
+/// operations the CPU stalls on any flash access — this is a hardware
+/// limitation and cannot be made asynchronous without executing wait code
+/// from RAM. Normal writes complete in ~100μs. Page erase takes ~85ms
+/// but only occurs during compaction (when the settings page is full,
+/// typically after ~1024 writes).
 ///
 /// SAFETY: Reads NVMC READY register. Caller must be in a context
 /// where NVMC access is valid (no concurrent flash operations).

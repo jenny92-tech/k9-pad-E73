@@ -191,6 +191,12 @@ impl<I2C> DrawTarget for Sh1107<I2C> {
         }
         Ok(())
     }
+
+    /// Fast whole-buffer clear — O(1) instead of 8192 individual set_pixel calls.
+    fn clear(&mut self, color: Self::Color) -> Result<(), Self::Error> {
+        self.buffer.fill(if color.is_on() { 0xFF } else { 0x00 });
+        Ok(())
+    }
 }
 
 impl<I2C> OriginDimensions for Sh1107<I2C> {

@@ -17,7 +17,7 @@ use crate::data_channel::{DisplayDataCache, DISPLAY_DATA};
 use crate::driver;
 use crate::driver::sh1107::Sh1107;
 use crate::menu::{MenuInput, MENU_INPUT, MENU_STATE, MenuState, PageId};
-use crate::mode::CURRENT_MODE;
+use crate::mode::{CURRENT_MODE, NUM_LAYERS};
 use crate::settings::{SETTINGS, keys};
 use crate::wououi::{WouoUI, WououiInput, SCREEN_WIDTH, SCREEN_HEIGHT};
 use render::{draw_keyboard_ui, draw_data_channel_ui};
@@ -88,7 +88,7 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
     // 打开显示
     Timer::after(Duration::from_millis(200)).await;
     display.send_command(0xAF).await.ok();
-    defmt::info!("Display ON");
+    defmt::info!("Display ON (firmware {})", env!("K9_GIT_HASH"));
 
     // 初始化 WouoUI（传入帧间隔，自动适配 blur 时序）
     const MENU_FRAME_MS: u16 = 8; // ~125 FPS
@@ -105,8 +105,8 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
     }
 
     // 从 flash 恢复每个 Pad 的数据通道设置
-    let mut confirmed_dc_functions: [u16; 5] = [0; 5];
-    for pad in 0..5u8 {
+    let mut confirmed_dc_functions: [u16; NUM_LAYERS as usize] = [0; NUM_LAYERS as usize];
+    for pad in 0..NUM_LAYERS {
         let mask = SETTINGS.read(keys::DC_FUNCTIONS_PAD0 + pad, 0);
         if mask != 0 {
             wououi.set_enabled_functions(pad, mask as u16);
@@ -122,7 +122,7 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
     let mut confirmed_screen_timeout: u8 = saved_timeout;
 
     // 从 flash 恢复 Quick Menu 设置
-    let saved_quick_menu = SETTINGS.read(keys::QUICK_MENU, 0);
+    let saved_quick_menu = SETTINGS.read(keys::QUICK_MENU, 1);
     wououi.set_quick_menu_enabled(saved_quick_menu != 0);
     let mut confirmed_quick_menu: bool = saved_quick_menu != 0;
     defmt::info!("Restored quick_menu: {}", saved_quick_menu != 0);
@@ -205,6 +205,14 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
 
     // 显示主循环
     let display_future = async {
+    // 变更检测状态（跨帧保持，避免 static mut）
+    let mut prev_dc_config = k9_datachannel_proto::PadConfig {
+        active_pad: 0xFF,
+        enabled_functions: 0xFFFF,
+    };
+    let mut prev_on_home: bool = true;
+    let mut prev_active: bool = false;
+
     loop {
         let now = Instant::now();
         let elapsed_ms = (now - last_frame).as_millis() as u16;
@@ -451,15 +459,8 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
                     active_pad: current_pad_index,
                     enabled_functions: functions,
                 };
-                static mut PREV_DC_CONFIG: k9_datachannel_proto::PadConfig =
-                    k9_datachannel_proto::PadConfig {
-                        active_pad: 0xFF,
-                        enabled_functions: 0xFFFF,
-                    };
-                // SAFETY: 单线程 display task 内部使用
-                let prev = unsafe { PREV_DC_CONFIG };
-                if new_config != prev {
-                    unsafe { PREV_DC_CONFIG = new_config };
+                if new_config != prev_dc_config {
+                    prev_dc_config = new_config;
                     crate::data_channel::DATA_CHANNEL_CONFIG.sender().send(new_config);
                     defmt::info!(
                         "DC config: pad={} functions=0x{:04x}",
@@ -472,12 +473,9 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
             // 持久化数据通道设置：回到主菜单时保存（子页面设置已确认）
             {
                 let on_home = wououi.is_on_home_page();
-                static mut PREV_ON_HOME: bool = true;
-                // SAFETY: 单线程 display task 内部使用
-                let was_on_home = unsafe { PREV_ON_HOME };
-                if on_home && !was_on_home {
+                if on_home && !prev_on_home {
                     // 刚从子页面返回主菜单，保存变更的设置
-                    for pad in 0..5u8 {
+                    for pad in 0..NUM_LAYERS {
                         let funcs = wououi.get_enabled_functions(pad);
                         if funcs != confirmed_dc_functions[pad as usize] {
                             confirmed_dc_functions[pad as usize] = funcs;
@@ -485,7 +483,7 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
                         }
                     }
                 }
-                unsafe { PREV_ON_HOME = on_home };
+                prev_on_home = on_home;
             }
 
             // 更新空闲计时器
@@ -568,11 +566,8 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
         // 广播菜单状态（仅在 active 变化时发送，避免每帧都广播）
         {
             let new_active = menu_active;
-            static mut PREV_ACTIVE: bool = false;
-            // SAFETY: 单线程 display task 内部使用，无竞争
-            let prev = unsafe { PREV_ACTIVE };
-            if new_active != prev {
-                unsafe { PREV_ACTIVE = new_active };
+            if new_active != prev_active {
+                prev_active = new_active;
 
                 // 同步 RMK 菜单模式标志，控制按键/编码器拦截
                 crate::menu::set_rmk_menu_mode(new_active);

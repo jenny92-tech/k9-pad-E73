@@ -17,7 +17,9 @@ pub async fn run_data_channel() -> ! {
     defmt::info!("Data channel task started");
 
     // 配置变化监听
-    let mut config_rx = DATA_CHANNEL_CONFIG.receiver().unwrap();
+    let mut config_rx = DATA_CHANNEL_CONFIG
+        .receiver()
+        .expect("DATA_CHANNEL_CONFIG: no receiver slot available (max 2)");
 
     loop {
         // 同时等待：主机数据 或 配置变化

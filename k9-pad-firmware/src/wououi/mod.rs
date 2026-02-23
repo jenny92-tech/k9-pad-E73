@@ -400,11 +400,13 @@ impl WouoUI {
             return None;
         }
         // SAFETY: WouoUI_PortGetBuffer returns a pointer to the C library's
-        // internal screen buffer, and WouoUI_PortGetBufferSize returns its size.
-        // The `initialized` check above guarantees the buffer has been allocated.
-        // The null check ensures we never create a slice from a null pointer.
-        // The returned slice borrows `self` immutably, preventing mutation
-        // of the buffer while the slice is alive.
+        // internal screen buffer (a static uint8_t array in C), and
+        // WouoUI_PortGetBufferSize returns its size in bytes.
+        // - The `initialized` check above guarantees the buffer has been allocated.
+        // - The null check ensures we never create a slice from a null pointer.
+        // - Alignment is always satisfied: u8 slices require alignment of 1.
+        // - The returned slice borrows `self` immutably, preventing mutation
+        //   of the buffer while the slice is alive (single-core, no ISR access).
         unsafe {
             let ptr = WouoUI_PortGetBuffer();
             let size = WouoUI_PortGetBufferSize() as usize;

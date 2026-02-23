@@ -7,6 +7,11 @@ use tokio::sync::Mutex;
 
 use super::{Transport, TransportError};
 
+/// K9-Pad USB VID (from keyboard.toml vendor_id).
+const K9_USB_VID: u16 = 0x4C4B;
+/// K9-Pad USB PID (from keyboard.toml product_id).
+const K9_USB_PID: u16 = 0x4643;
+
 /// USB CDC serial transport for K9-Pad.
 pub struct UsbTransport {
     port: Mutex<Box<dyn SerialPort>>,
@@ -44,9 +49,12 @@ impl UsbTransport {
             .map_err(|e| TransportError::ConnectionFailed(format!("Port enumeration: {e}")))?;
 
         for port_info in &ports {
-            // Look for ports that might be a K9-Pad device
-            // TODO: Match on specific USB VID/PID for nRF52840 CDC
             if let serialport::SerialPortType::UsbPort(usb_info) = &port_info.port_type {
+                // Primary: match on USB VID/PID (reliable, hardware-level)
+                if usb_info.vid == K9_USB_VID && usb_info.pid == K9_USB_PID {
+                    return Self::connect(&port_info.port_name, 115200);
+                }
+                // Fallback: match on product name string (for development/custom firmware)
                 let product = usb_info.product.as_deref().unwrap_or("");
                 if product.contains("K9") || product.contains("k9") {
                     return Self::connect(&port_info.port_name, 115200);
@@ -84,15 +92,20 @@ impl Transport for UsbTransport {
             .map_err(|e| TransportError::ReceiveFailed(format!("Header decode: {e:?}")))?;
 
         let payload_len = header.payload_len as usize;
+        let total_len = k9_datachannel_proto::HEADER_SIZE + payload_len;
+        if total_len > k9_datachannel_proto::MAX_PACKET_SIZE {
+            return Err(TransportError::ReceiveFailed(format!(
+                "Payload length {payload_len} exceeds max packet size"
+            )));
+        }
         if payload_len > 0 {
             port.read_exact(
-                &mut buf[k9_datachannel_proto::HEADER_SIZE
-                    ..k9_datachannel_proto::HEADER_SIZE + payload_len],
+                &mut buf[k9_datachannel_proto::HEADER_SIZE..total_len],
             )
             .map_err(|e| TransportError::ReceiveFailed(format!("Payload read: {e}")))?;
         }
 
-        buf.truncate(k9_datachannel_proto::HEADER_SIZE + payload_len);
+        buf.truncate(total_len);
         Ok(buf)
     }
 

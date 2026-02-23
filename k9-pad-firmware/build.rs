@@ -22,6 +22,12 @@ use const_gen::*;
 use xz2::read::XzEncoder;
 
 fn main() {
+    // Pre-flight checks for required external tools
+    preflight_checks();
+
+    // Embed git commit info as compile-time constants
+    embed_git_info();
+
     // Generate vial config at the root of project
     println!("cargo:rerun-if-changed=vial.json");
     generate_vial_config();
@@ -61,6 +67,71 @@ fn main() {
 
     // Use flip-link overflow check: https://github.com/knurling-rs/flip-link
     println!("cargo:rustc-linker=flip-link");
+}
+
+/// Check that required external tools are available.
+/// Prints cargo warnings for missing tools so the user gets actionable feedback
+/// instead of cryptic linker errors.
+fn preflight_checks() {
+    let target = env::var("TARGET").unwrap_or_default();
+    if !target.contains("thumbv7em") {
+        return; // Only check ARM tools for ARM builds
+    }
+
+    // arm-none-eabi-gcc is needed by cc to compile WouoUI C library
+    if std::process::Command::new("arm-none-eabi-gcc")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        println!(
+            "cargo:warning=arm-none-eabi-gcc not found. \
+             Install it: brew install arm-none-eabi-gcc (macOS) or \
+             apt install gcc-arm-none-eabi (Ubuntu)"
+        );
+    }
+
+    // flip-link is used as the linker for stack overflow protection
+    if std::process::Command::new("flip-link")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        println!(
+            "cargo:warning=flip-link not found. \
+             Install it: cargo install flip-link"
+        );
+    }
+}
+
+/// Embed git commit hash as a compile-time environment variable.
+/// Usage in Rust: `env!("K9_GIT_HASH")` → e.g. "a26db76" or "a26db76-dirty"
+fn embed_git_info() {
+    // Always re-run when HEAD changes (new commits, branch switches)
+    println!("cargo:rerun-if-changed=../.git/HEAD");
+
+    let hash = std::process::Command::new("git")
+        .args(["rev-parse", "--short", "HEAD"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| "unknown".into());
+
+    let dirty = std::process::Command::new("git")
+        .args(["diff", "--quiet", "HEAD"])
+        .status()
+        .map(|s| !s.success())
+        .unwrap_or(false);
+
+    let version = if dirty {
+        format!("{}-dirty", hash)
+    } else {
+        hash
+    };
+
+    println!("cargo:rustc-env=K9_GIT_HASH={}", version);
 }
 
 fn compile_wououi() {

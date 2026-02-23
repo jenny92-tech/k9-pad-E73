@@ -1,6 +1,8 @@
 // INPUT:  tokio, k9-host-lib (ai-quota), k9-datachannel-proto
 // OUTPUT: AiQuotaProvider
 // POS:    AI 工具订阅配额数据提供者 (Claude Code, Codex CLI)
+use std::cmp::Ordering;
+
 use log::{debug, warn};
 use tokio::sync::mpsc;
 
@@ -84,7 +86,11 @@ impl Provider for AiQuotaProvider {
             let best = [claude, codex]
                 .into_iter()
                 .flatten()
-                .max_by(|a, b| a.utilization_pct.partial_cmp(&b.utilization_pct).unwrap());
+                .max_by(|a, b| {
+                    a.utilization_pct
+                        .partial_cmp(&b.utilization_pct)
+                        .unwrap_or(Ordering::Equal)
+                });
 
             if let Some(info) = best {
                 let progress = info.as_progress();

@@ -9,5 +9,6 @@ target
 .DS_Store
 __pycache__/
 
-# Lock file is managed per-workspace; firmware has its own
-k9-pad-firmware/Cargo.lock
+# Note: k9-pad-firmware/Cargo.lock is intentionally committed (binary
+# project needs reproducible builds). The workspace root Cargo.lock is
+# managed separately by the workspace.

@@ -1,11 +1,12 @@
+// INPUT:  bluest (BLE), shared-datachannel-proto UUIDs
+// OUTPUT: BleTransport implementing Transport trait
+// POS:    BLE transport layer — handles discovery (connected + scan) and GATT I/O
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use btleplug::api::{
-    Central, CentralEvent, Characteristic, Manager as _, Peripheral as _, ScanFilter, WriteType,
-};
-use btleplug::platform::{Adapter, Manager, Peripheral};
+use bluest::{Adapter, Characteristic, Device};
 use futures::StreamExt;
 use log::{debug, info};
 use tokio::sync::Mutex;
@@ -23,148 +24,212 @@ pub const K9_RX_CHAR_UUID: Uuid = Uuid::from_u128(0xe9dc0002_7374_7265_616d_6b39
 /// Characteristic UUID for device -> host notifications (TX from device perspective).
 pub const K9_TX_CHAR_UUID: Uuid = Uuid::from_u128(0xe9dc0003_7374_7265_616d_6b3970616400);
 
-/// BLE transport using btleplug.
+/// Maximum number of buffered BLE notifications before dropping new ones.
+const MAX_RECV_BUF_SIZE: usize = 32;
+
+/// BLE transport using bluest.
+///
+/// Supports both already-connected devices (via `retrieveConnectedPeripherals` on macOS)
+/// and scanning for new devices.
 pub struct BleTransport {
-    peripheral: Peripheral,
+    adapter: Adapter,
+    device: Device,
     rx_char: Characteristic,
-    #[allow(dead_code)]
-    tx_char: Characteristic,
     connected: AtomicBool,
+    /// Whether the notification stream task is still alive.
+    stream_alive: Arc<AtomicBool>,
     recv_buf: Arc<Mutex<Vec<Vec<u8>>>>,
 }
 
 impl BleTransport {
-    /// Scan for a K9-Pad device and connect to it.
+    /// Find a K9-Pad device and connect to it.
     ///
-    /// `timeout` controls how long to scan before giving up.
+    /// First checks already-connected peripherals (via service UUID),
+    /// then falls back to scanning for `timeout` duration.
     pub async fn connect(timeout: Duration) -> Result<Self, TransportError> {
-        let manager = Manager::new()
+        let adapter = Adapter::default()
             .await
-            .map_err(|e| TransportError::ConnectionFailed(format!("BLE manager init: {e}")))?;
-
-        let adapters = manager
-            .adapters()
-            .await
-            .map_err(|e| TransportError::ConnectionFailed(format!("No BLE adapters: {e}")))?;
-
-        let adapter = adapters
-            .into_iter()
-            .next()
             .ok_or_else(|| TransportError::ConnectionFailed("No BLE adapter found".into()))?;
 
-        let peripheral = Self::scan_and_find(&adapter, timeout).await?;
-
-        peripheral
-            .connect()
+        adapter
+            .wait_available()
             .await
-            .map_err(|e| TransportError::ConnectionFailed(format!("Connect failed: {e}")))?;
+            .map_err(|e| TransportError::ConnectionFailed(format!("Adapter not available: {e}")))?;
 
-        peripheral
+        // Try already-connected devices first (handles paired keyboards on macOS)
+        let device = match Self::find_connected(&adapter).await {
+            Some(d) => d,
+            None => {
+                info!("No already-connected K9-Pad found, scanning...");
+                Self::scan_and_find(&adapter, timeout).await?
+            }
+        };
+
+        // Connect if not already connected
+        if !device.is_connected().await {
+            adapter
+                .connect_device(&device)
+                .await
+                .map_err(|e| TransportError::ConnectionFailed(format!("Connect failed: {e}")))?;
+        }
+
+        // Discover services and characteristics
+        let services = device
             .discover_services()
             .await
             .map_err(|e| TransportError::ConnectionFailed(format!("Service discovery: {e}")))?;
 
-        let (rx_char, tx_char) = Self::find_characteristics(&peripheral)?;
+        let k9_service = services
+            .iter()
+            .find(|s| s.uuid() == K9_SERVICE_UUID)
+            .ok_or_else(|| {
+                TransportError::ConnectionFailed("K9 data channel service not found".into())
+            })?;
 
-        // Subscribe to TX notifications
-        peripheral
-            .subscribe(&tx_char)
+        let chars = k9_service
+            .discover_characteristics()
             .await
-            .map_err(|e| TransportError::ConnectionFailed(format!("Subscribe failed: {e}")))?;
+            .map_err(|e| {
+                TransportError::ConnectionFailed(format!("Characteristic discovery: {e}"))
+            })?;
 
+        let rx_char = chars
+            .iter()
+            .find(|c| c.uuid() == K9_RX_CHAR_UUID)
+            .cloned()
+            .ok_or_else(|| {
+                TransportError::ConnectionFailed("RX characteristic not found".into())
+            })?;
+
+        let tx_char = chars
+            .iter()
+            .find(|c| c.uuid() == K9_TX_CHAR_UUID)
+            .cloned()
+            .ok_or_else(|| {
+                TransportError::ConnectionFailed("TX characteristic not found".into())
+            })?;
+
+        // Subscribe to TX notifications — tx_char is moved into the spawned task
         let recv_buf = Arc::new(Mutex::new(Vec::new()));
-
-        // Spawn notification listener
         let recv_buf_clone = recv_buf.clone();
-        let notif_stream = peripheral
-            .notifications()
-            .await
-            .map_err(|e| TransportError::ConnectionFailed(format!("Notifications: {e}")))?;
+        let stream_alive = Arc::new(AtomicBool::new(true));
+        let stream_alive_clone = stream_alive.clone();
 
         tokio::spawn(async move {
-            let mut stream = notif_stream;
-            while let Some(notification) = stream.next().await {
-                let mut buf = recv_buf_clone.lock().await;
-                buf.push(notification.value);
+            match tx_char.notify().await {
+                Ok(mut stream) => {
+                    while let Some(result) = stream.next().await {
+                        match result {
+                            Ok(data) => {
+                                let mut buf = recv_buf_clone.lock().await;
+                                if buf.len() < MAX_RECV_BUF_SIZE {
+                                    buf.push(data);
+                                } else {
+                                    debug!("Notification buffer full, dropping message");
+                                }
+                            }
+                            Err(e) => {
+                                debug!("Notification stream error: {e}");
+                                break;
+                            }
+                        }
+                    }
+                    debug!("Notification stream ended");
+                }
+                Err(e) => {
+                    debug!("Failed to subscribe to TX notifications: {e}");
+                }
             }
+            stream_alive_clone.store(false, Ordering::SeqCst);
         });
 
         info!("Connected to K9-Pad via BLE");
 
         Ok(Self {
-            peripheral,
+            adapter,
+            device,
             rx_char,
-            tx_char,
             connected: AtomicBool::new(true),
+            stream_alive,
             recv_buf,
         })
     }
 
-    async fn scan_and_find(
-        adapter: &Adapter,
-        timeout: Duration,
-    ) -> Result<Peripheral, TransportError> {
-        info!("Scanning for K9-Pad BLE device...");
+    /// Standard BLE HID service UUID (0x1812).
+    /// Used to find keyboards already connected to the OS.
+    const BLE_HID_SERVICE_UUID: Uuid = Uuid::from_u128(0x1812);
 
-        adapter
-            .start_scan(ScanFilter::default())
+    /// Check already-connected peripherals for a K9-Pad device.
+    ///
+    /// Tries two strategies:
+    /// 1. By K9 data channel service UUID (if previously discovered)
+    /// 2. By BLE HID service UUID + name matching (for OS-paired keyboards)
+    async fn find_connected(adapter: &Adapter) -> Option<Device> {
+        info!("Checking for already-connected K9-Pad...");
+
+        // Strategy 1: Find by K9 custom service UUID
+        if let Ok(devices) = adapter
+            .connected_devices_with_services(&[K9_SERVICE_UUID])
             .await
-            .map_err(|e| TransportError::ConnectionFailed(format!("Scan start: {e}")))?;
-
-        let mut events = adapter
-            .events()
-            .await
-            .map_err(|e| TransportError::ConnectionFailed(format!("Adapter events: {e}")))?;
-
-        let deadline = tokio::time::Instant::now() + timeout;
-
-        loop {
-            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-            if remaining.is_zero() {
-                break;
-            }
-
-            match tokio::time::timeout(remaining, events.next()).await {
-                Ok(Some(CentralEvent::DeviceDiscovered(id))) => {
-                    if let Ok(peripheral) = adapter.peripheral(&id).await {
-                        if let Ok(Some(props)) = peripheral.properties().await {
-                            let name = props.local_name.unwrap_or_default();
-                            debug!("Found device: {name}");
-                            if name.contains("K9") || name.contains("k9") {
-                                let _ = adapter.stop_scan().await;
-                                return Ok(peripheral);
-                            }
-                        }
-                    }
-                }
-                Ok(_) => continue,
-                Err(_) => break,
+        {
+            info!("Found {} device(s) with K9 service", devices.len());
+            if let Some(device) = devices.into_iter().next() {
+                let name = device.name().unwrap_or_default();
+                info!("Found K9-Pad by service UUID: {name}");
+                return Some(device);
             }
         }
 
-        let _ = adapter.stop_scan().await;
-        Err(TransportError::Timeout)
+        // Strategy 2: Find by HID service UUID + name matching
+        if let Ok(devices) = adapter
+            .connected_devices_with_services(&[Self::BLE_HID_SERVICE_UUID])
+            .await
+        {
+            info!(
+                "Found {} connected HID device(s), filtering by name...",
+                devices.len()
+            );
+            for device in devices {
+                let name = device.name().unwrap_or_default();
+                debug!("  HID device: {name}");
+                if name.contains("K9") || name.contains("k9") {
+                    info!("Found K9-Pad by HID service + name: {name}");
+                    return Some(device);
+                }
+            }
+        }
+
+        None
     }
 
-    fn find_characteristics(
-        peripheral: &Peripheral,
-    ) -> Result<(Characteristic, Characteristic), TransportError> {
-        let chars = peripheral.characteristics();
-        let rx = chars
-            .iter()
-            .find(|c| c.uuid == K9_RX_CHAR_UUID)
-            .cloned()
-            .ok_or_else(|| {
-                TransportError::ConnectionFailed("RX characteristic not found".into())
-            })?;
-        let tx = chars
-            .iter()
-            .find(|c| c.uuid == K9_TX_CHAR_UUID)
-            .cloned()
-            .ok_or_else(|| {
-                TransportError::ConnectionFailed("TX characteristic not found".into())
-            })?;
-        Ok((rx, tx))
+    /// Scan for a K9-Pad device by name.
+    async fn scan_and_find(
+        adapter: &Adapter,
+        timeout: Duration,
+    ) -> Result<Device, TransportError> {
+        info!("Scanning for K9-Pad BLE device...");
+
+        let mut scan = adapter
+            .scan(&[])
+            .await
+            .map_err(|e| TransportError::ConnectionFailed(format!("Scan start: {e}")))?;
+
+        let result = tokio::time::timeout(timeout, async {
+            while let Some(adv_device) = scan.next().await {
+                let name = adv_device.device.name().unwrap_or_default();
+                debug!("Found device: {name}");
+                if name.contains("K9") || name.contains("k9") {
+                    return Some(adv_device.device);
+                }
+            }
+            None
+        })
+        .await;
+
+        match result {
+            Ok(Some(device)) => Ok(device),
+            _ => Err(TransportError::Timeout),
+        }
     }
 }
 
@@ -173,14 +238,14 @@ impl Transport for BleTransport {
         if !self.connected.load(Ordering::Relaxed) {
             return Err(TransportError::NotConnected);
         }
-        self.peripheral
-            .write(&self.rx_char, data, WriteType::WithResponse)
+        self.rx_char
+            .write_without_response(data)
             .await
             .map_err(|e| TransportError::SendFailed(format!("{e}")))
     }
 
     async fn receive(&self) -> Result<Vec<u8>, TransportError> {
-        if !self.connected.load(Ordering::Relaxed) {
+        if !self.is_connected() {
             return Err(TransportError::NotConnected);
         }
         // Poll the notification buffer with a timeout
@@ -192,6 +257,12 @@ impl Transport for BleTransport {
                     return Ok(buf.remove(0));
                 }
             }
+            // Check if the notification stream died while we were waiting
+            if !self.stream_alive.load(Ordering::SeqCst) {
+                return Err(TransportError::ReceiveFailed(
+                    "BLE notification stream terminated".into(),
+                ));
+            }
             if tokio::time::Instant::now() >= deadline {
                 return Err(TransportError::Timeout);
             }
@@ -201,13 +272,13 @@ impl Transport for BleTransport {
 
     async fn disconnect(&self) -> Result<(), TransportError> {
         self.connected.store(false, Ordering::Relaxed);
-        self.peripheral
-            .disconnect()
+        self.adapter
+            .disconnect_device(&self.device)
             .await
             .map_err(|e| TransportError::ConnectionFailed(format!("Disconnect: {e}")))
     }
 
     fn is_connected(&self) -> bool {
-        self.connected.load(Ordering::Relaxed)
+        self.connected.load(Ordering::Relaxed) && self.stream_alive.load(Ordering::SeqCst)
     }
 }
