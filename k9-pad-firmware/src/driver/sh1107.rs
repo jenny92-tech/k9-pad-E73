@@ -8,12 +8,11 @@ use embedded_graphics::{
 };
 use embedded_hal_async::i2c::I2c;
 
-// SH1107 I2C 地址
-const SH1107_ADDR: u8 = 0x3C;
+use super::board;
 
-// 显示尺寸
-const DISPLAY_WIDTH: u32 = 128;
-const DISPLAY_HEIGHT: u32 = 64;
+const SH1107_ADDR: u8 = board::DISPLAY_I2C_ADDR;
+const DISPLAY_WIDTH: u32 = board::DISPLAY_WIDTH;
+const DISPLAY_HEIGHT: u32 = board::DISPLAY_HEIGHT;
 
 /// SH1107 显示驱动 (横屏 128x64)
 pub struct Sh1107<I2C> {

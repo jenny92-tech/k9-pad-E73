@@ -11,7 +11,7 @@
 //! SETTINGS.write(keys::BRIGHTNESS, new_val);
 //! ```
 
-use crate::driver::flash::FlashStore;
+use crate::driver::{board, flash::FlashStore};
 
 /// Well-known setting keys for K9-Pad.
 ///
@@ -28,6 +28,9 @@ pub mod keys {
 
 /// Global settings store instance.
 ///
-/// Uses flash page at 0xF3000 (4KB, last page before bootloader).
-/// Magic bytes `K9` (0x4B, 0x39) identify valid entries.
-pub static SETTINGS: FlashStore = FlashStore::new(0x000F_3000, 4096, [0x4B, 0x39]);
+/// Uses flash page and magic bytes defined in board config.
+pub static SETTINGS: FlashStore = FlashStore::new(
+    board::SETTINGS_PAGE_ADDR,
+    board::SETTINGS_PAGE_SIZE,
+    board::SETTINGS_MAGIC,
+);

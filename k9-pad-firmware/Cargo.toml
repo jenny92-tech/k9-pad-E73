@@ -63,8 +63,10 @@ const-gen = "1.6"
 cc = "1.0"
 
 [features]
-default = ["display"]
+default = ["display", "hw-v1"]
 display = []
+hw-v1 = []
+# hw-v2 = []  # V2 硬件到来时取消注释
 
 [lib]
 name = "k9_pad_e73"
