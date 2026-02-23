@@ -218,11 +218,8 @@ impl PadConfig {
 
 /// Device capability descriptor returned by `CapabilitiesResp`.
 ///
-/// Wire format (10 bytes):
-/// ```text
-/// protocol_version(1B) + firmware_major(1B) + firmware_minor(1B) + firmware_patch(1B)
-/// + hw_version(1B) + max_slots(1B) + supported_cmds(2B LE) + supported_types(2B LE)
-/// ```
+/// Wire format (4 bytes):
+/// `protocol_version(1B) + firmware_major(1B) + firmware_minor(1B) + firmware_patch(1B)`
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DeviceCapabilities {
     /// Protocol revision (starts at 1).
@@ -233,18 +230,10 @@ pub struct DeviceCapabilities {
     pub firmware_minor: u8,
     /// Firmware patch version.
     pub firmware_patch: u8,
-    /// Hardware board revision (0 = unknown).
-    pub hw_version: u8,
-    /// Number of display slots supported.
-    pub max_slots: u8,
-    /// Bitmask of supported `CommandId` values (bit N = command with value N).
-    pub supported_cmds: u16,
-    /// Bitmask of supported `DataType` values (bit N = data type with value N).
-    pub supported_types: u16,
 }
 
 impl DeviceCapabilities {
-    pub const WIRE_SIZE: usize = 10;
+    pub const WIRE_SIZE: usize = 4;
 
     pub fn encode(&self, buf: &mut [u8]) -> Option<usize> {
         if buf.len() < Self::WIRE_SIZE {
@@ -254,12 +243,6 @@ impl DeviceCapabilities {
         buf[1] = self.firmware_major;
         buf[2] = self.firmware_minor;
         buf[3] = self.firmware_patch;
-        buf[4] = self.hw_version;
-        buf[5] = self.max_slots;
-        buf[6] = (self.supported_cmds & 0xFF) as u8;
-        buf[7] = ((self.supported_cmds >> 8) & 0xFF) as u8;
-        buf[8] = (self.supported_types & 0xFF) as u8;
-        buf[9] = ((self.supported_types >> 8) & 0xFF) as u8;
         Some(Self::WIRE_SIZE)
     }
 
@@ -272,10 +255,6 @@ impl DeviceCapabilities {
             firmware_major: buf[1],
             firmware_minor: buf[2],
             firmware_patch: buf[3],
-            hw_version: buf[4],
-            max_slots: buf[5],
-            supported_cmds: u16::from_le_bytes([buf[6], buf[7]]),
-            supported_types: u16::from_le_bytes([buf[8], buf[9]]),
         })
     }
 }
@@ -561,20 +540,16 @@ mod tests {
             firmware_major: 0,
             firmware_minor: 2,
             firmware_patch: 0,
-            hw_version: 1,
-            max_slots: 8,
-            supported_cmds: 0x1234,
-            supported_types: 0xABCD,
         };
         let mut buf = [0u8; DeviceCapabilities::WIRE_SIZE];
-        assert_eq!(caps.encode(&mut buf), Some(10));
+        assert_eq!(caps.encode(&mut buf), Some(4));
         let decoded = DeviceCapabilities::decode(&buf).unwrap();
         assert_eq!(caps, decoded);
     }
 
     #[test]
     fn device_capabilities_decode_too_short() {
-        let buf = [0u8; 9]; // needs 10
+        let buf = [0u8; 3]; // needs 4
         assert!(DeviceCapabilities::decode(&buf).is_none());
     }
 
@@ -596,10 +571,6 @@ mod tests {
             firmware_major: 1,
             firmware_minor: 3,
             firmware_patch: 7,
-            hw_version: 2,
-            max_slots: 8,
-            supported_cmds: (1u16 << 0x01) | (1u16 << 0x02) | (1u16 << 0x06),
-            supported_types: (1u16 << 0x01) | (1u16 << 0x03),
         };
         let mut buf = [0u8; 64];
         let n = build_capabilities_resp(&mut buf, &caps).unwrap();

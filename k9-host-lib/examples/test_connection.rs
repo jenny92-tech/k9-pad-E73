@@ -135,30 +135,21 @@ async fn run_usb(_port: Option<String>) {
 async fn run_test_sequence<T: Transport>(client: &K9Client<T>) {
     println!();
 
-    // 1. GetCapabilities (probe firmware version & supported commands)
+    // 1. GetCapabilities
     print_step("get_capabilities()");
     let start = Instant::now();
     match client.get_capabilities().await {
         Ok(caps) => {
             print_ok(start.elapsed());
             println!(
-                "  protocol: v{}, firmware: {}.{}.{}, hw: v{}, slots: {}",
+                "  protocol: v{}, firmware: {}.{}.{}",
                 caps.protocol_version,
                 caps.firmware_major,
                 caps.firmware_minor,
-                caps.firmware_patch,
-                caps.hw_version,
-                caps.max_slots
-            );
-            println!(
-                "  supported_cmds: 0x{:04X}, supported_types: 0x{:04X}",
-                caps.supported_cmds, caps.supported_types
+                caps.firmware_patch
             );
         }
-        Err(e) => {
-            print_fail(&format!("{e}"));
-            println!("  (legacy firmware without capability negotiation?)");
-        }
+        Err(e) => print_fail(&format!("{e}")),
     }
 
     // 2. Ping

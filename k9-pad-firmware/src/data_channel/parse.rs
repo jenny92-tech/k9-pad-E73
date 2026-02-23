@@ -92,21 +92,6 @@ pub fn handle_control_packet(buf: &[u8], current_config: &PadConfig) -> Option<[
                 firmware_major: FW_MAJOR,
                 firmware_minor: FW_MINOR,
                 firmware_patch: FW_PATCH,
-                hw_version: 1,
-                max_slots: 8,
-                supported_cmds: (1u16 << CommandId::SetDisplay as u8)
-                    | (1u16 << CommandId::GetStatus as u8)
-                    | (1u16 << CommandId::StatusResp as u8)
-                    | (1u16 << CommandId::ConfigChanged as u8)
-                    | (1u16 << CommandId::Ack as u8)
-                    | (1u16 << CommandId::GetCapabilities as u8)
-                    | (1u16 << CommandId::CapabilitiesResp as u8),
-                supported_types: (1u16 << DataType::Text as u8)
-                    | (1u16 << DataType::Numeric as u8)
-                    | (1u16 << DataType::Progress as u8)
-                    | (1u16 << DataType::IconId as u8)
-                    | (1u16 << DataType::KeyValue as u8)
-                    | (1u16 << DataType::Clear as u8),
             };
             let mut resp = [0u8; 64];
             build_capabilities_resp(&mut resp, &caps)?;

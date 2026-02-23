@@ -10,7 +10,7 @@
 
 4 字节头（CMD+TYPE+LEN）+ payload，最大 64 字节。
 Protocol version 1（`PROTOCOL_VERSION` 常量）；支持 `GetCapabilities`/`CapabilitiesResp`
-命令对进行版本协商，`DeviceCapabilities` 结构体描述设备能力（10 bytes wire format）。
+命令对查询协议版本和固件版本，`DeviceCapabilities` 结构体（4 bytes wire format）。
 
 ## 约束
 

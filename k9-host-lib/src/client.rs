@@ -139,11 +139,7 @@ impl<T: Transport> K9Client<T> {
         Ok(())
     }
 
-    /// Request device capabilities. Returns `DeviceCapabilities` on success.
-    ///
-    /// If the device is running legacy firmware that doesn't support
-    /// `GetCapabilities`, the transport will time out — the caller should
-    /// handle `ClientError::Transport(Timeout)` as a V1-baseline fallback.
+    /// Request device capabilities (protocol version, firmware version).
     pub async fn get_capabilities(&self) -> Result<DeviceCapabilities, ClientError> {
         let _guard = self.request_lock.lock().await;
 
@@ -471,10 +467,6 @@ mod tests {
             firmware_major: 0,
             firmware_minor: 2,
             firmware_patch: 0,
-            hw_version: 1,
-            max_slots: 8,
-            supported_cmds: 0xFF,
-            supported_types: 0x7F,
         };
         let mock = MockTransport::new();
         mock.queue_recv(Ok(capabilities_resp_packet(&caps))).await;
@@ -486,8 +478,6 @@ mod tests {
         assert_eq!(result.firmware_major, 0);
         assert_eq!(result.firmware_minor, 2);
         assert_eq!(result.firmware_patch, 0);
-        assert_eq!(result.hw_version, 1);
-        assert_eq!(result.max_slots, 8);
 
         // Verify a GetCapabilities packet was sent
         let sent = client.transport().sent_data().await;
