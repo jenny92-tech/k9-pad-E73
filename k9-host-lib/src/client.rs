@@ -1,3 +1,7 @@
+// INPUT:  Transport trait, shared-datachannel-proto (packet builders + decoders)
+// OUTPUT: K9Client<T> — high-level async API for push_text/numeric/progress, ping, get_status, get_capabilities
+// POS:    Application-level client — serializes request-response pairs over any Transport impl
+
 use k9_datachannel_proto::{
     self as proto, CommandId, DataType, DeviceCapabilities, PacketHeader, PadConfig, HEADER_SIZE,
     MAX_PACKET_SIZE,

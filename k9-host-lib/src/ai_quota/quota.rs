@@ -1,3 +1,7 @@
+// INPUT:  reqwest (HTTP client), ClaudeOAuth/CodexTokens credentials, serde (JSON deserialize)
+// OUTPUT: fetch_claude_quota(), fetch_codex_quota() -> QuotaInfo (utilization percentage)
+// POS:    Quota fetcher — calls Claude/Codex usage APIs and normalizes results into QuotaInfo
+
 use serde::Deserialize;
 
 use super::credentials::{ClaudeOAuth, CodexTokens};

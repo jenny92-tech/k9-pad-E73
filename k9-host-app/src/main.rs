@@ -1,6 +1,6 @@
-// INPUT:  gpui, k9-host-lib, shared-datachannel-proto
-// OUTPUT: K9-Pad 桌面管理应用
-// POS:    GPUI 桌面应用入口，替代原 k9-host-cli
+// INPUT:  gpui, env_logger, providers module
+// OUTPUT: K9-Pad GPUI 桌面管理应用（窗口创建 + 主循环）
+// POS:    桌面应用入口 — 初始化 GPUI 窗口并启动主界面
 pub mod providers;
 
 use gpui::{

@@ -1,6 +1,6 @@
-// INPUT:  tokio, k9-datachannel-proto
-// OUTPUT: Provider trait + time/volume/bilibili providers
-// POS:    数据提供者模块，从 k9-host-cli 迁移
+// INPUT:  tokio, anyhow
+// OUTPUT: Provider trait + DisplayUpdate/DisplayData 类型 + 四个具体 provider 子模块
+// POS:    数据提供者抽象层 — 定义统一接口，子模块各自实现具体数据源
 pub mod ai_quota;
 pub mod bilibili;
 pub mod time;

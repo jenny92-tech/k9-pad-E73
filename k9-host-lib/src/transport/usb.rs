@@ -1,3 +1,7 @@
+// INPUT:  serialport (CDC serial), shared-datachannel-proto (packet header decoding), Transport trait
+// OUTPUT: UsbTransport — connects to K9-Pad via USB CDC serial, sends/receives framed packets
+// POS:    USB transport impl — auto-detects K9-Pad by VID/PID, reads header+payload framed data
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 

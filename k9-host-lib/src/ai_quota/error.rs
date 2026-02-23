@@ -1,3 +1,7 @@
+// INPUT:  reqwest::Error (for HTTP error wrapping)
+// OUTPUT: AiQuotaError enum — unified error type for credential and quota operations
+// POS:    Error definitions — central error enum for the ai_quota module
+
 use std::fmt;
 
 #[derive(Debug)]

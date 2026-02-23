@@ -1,6 +1,6 @@
-// INPUT:  bluest (BLE), shared-datachannel-proto UUIDs
-// OUTPUT: BleTransport implementing Transport trait
-// POS:    BLE transport layer — handles discovery (connected + scan) and GATT I/O
+// INPUT:  bluest (BLE adapter/GATT), Transport trait, tokio (async spawn + Mutex)
+// OUTPUT: BleTransport — discovers K9-Pad via connected peripherals or scan, then provides GATT read/write
+// POS:    BLE transport impl — handles device discovery, GATT characteristic I/O, and notification buffering
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;

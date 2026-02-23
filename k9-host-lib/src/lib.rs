@@ -1,3 +1,7 @@
+// INPUT:  client, transport, ai_quota modules
+// OUTPUT: Public API re-exports — K9Client, Transport, BleTransport, UsbTransport, ai_quota
+// POS:    Crate root — facade that unifies all host-side communication primitives
+
 pub mod client;
 pub mod transport;
 

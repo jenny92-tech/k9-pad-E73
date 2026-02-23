@@ -1,3 +1,7 @@
+// INPUT:  dirs (home dir), serde/serde_json (JSON parsing), macOS Keychain (security CLI)
+// OUTPUT: read_claude_credentials() -> ClaudeOAuth, read_codex_credentials() -> CodexTokens
+// POS:    Credential reader — locates and parses OAuth tokens for Claude Code and Codex CLI
+
 use serde::Deserialize;
 use std::path::PathBuf;
 

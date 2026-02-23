@@ -1,3 +1,7 @@
+// INPUT:  ble, usb sub-modules (feature-gated)
+// OUTPUT: Transport trait + TransportError — async send/receive/disconnect abstraction
+// POS:    Transport layer root — defines the contract all transports must implement
+
 #[cfg(feature = "ble")]
 pub mod ble;
 #[cfg(feature = "usb")]

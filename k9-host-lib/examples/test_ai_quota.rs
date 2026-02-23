@@ -1,3 +1,7 @@
+// INPUT:  k9-host-lib::ai_quota (credential readers + quota fetchers)
+// OUTPUT: CLI smoke test — reads credentials and prints Claude/Codex quota to stdout
+// POS:    Developer example — validates ai_quota module works end-to-end
+
 //! Quick smoke test: read credentials and fetch AI quota.
 use k9_host_lib::ai_quota;
 

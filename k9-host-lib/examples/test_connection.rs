@@ -1,6 +1,6 @@
-// INPUT:  k9-host-lib (K9Client, BleTransport, UsbTransport, Transport trait)
-// OUTPUT: CLI example that validates BLE/USB communication with K9-Pad keyboard
-// POS:    Developer tool for verifying host-keyboard data channel link
+// INPUT:  k9-host-lib (K9Client, BleTransport, UsbTransport, Transport trait), clap (CLI args)
+// OUTPUT: CLI test harness — connects via BLE or USB, runs full command sequence, prints results
+// POS:    Developer example — end-to-end validation of host-keyboard data channel communication
 
 use std::time::{Duration, Instant};
 
