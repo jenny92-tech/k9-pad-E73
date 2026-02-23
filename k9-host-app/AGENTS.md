@@ -7,10 +7,12 @@ Monorepo 中的桌面端入口应用。依赖 `k9-host-lib`（BLE/USB 通信）�
 
 ## 逻辑
 
-1. `main.rs` 初始化 GPUI 应用窗口，渲染主界面
-2. `providers/` 模块定义统一的 `Provider` trait 和多个具体实现
-3. 每个 Provider 独立轮询数据源（本地时钟、系统音量、Bilibili API、AI 配额 API）
-4. Provider 通过 `mpsc` channel 发送 `DisplayUpdate`，由上层调度推送到键盘
+1. `main.rs` 初始化 GPUI 应用窗口，注册 `AppState` 全局状态，启动 tokio 桥接线程
+2. `bridge.rs` 在独立 OS 线程创建 `tokio::runtime::current_thread`，执行 BLE 连接、设备查询、Provider 启动
+3. `providers/` 模块定义统一的 `Provider` trait 和多个具体实现，每个 Provider 独立轮询数据源
+4. Provider 通过 `tokio::sync::mpsc` 发送 `DisplayUpdate`，bridge 调度器转发到 `K9Client` 推送至键盘
+5. tokio 线程通过 `std::sync::mpsc` 向 GPUI 端发送 `AppEvent`，`bridge_loop` 以 50ms 轮询更新 `AppState`
+6. `RootView` 观察 `AppState` 变化，自动刷新 UI 显示连接状态和设备信息
 
 ## 约束
 
@@ -24,6 +26,8 @@ Monorepo 中的桌面端入口应用。依赖 `k9-host-lib`（BLE/USB 通信）�
 
 | 名称 | 文件/子目录 | 职责 |
 |------|------------|------|
-| 应用入口 | `src/main.rs` | GPUI 窗口初始化与主界面渲染 |
+| 应用入口 | `src/main.rs` | GPUI 窗口创建、AppState 注册、tokio 桥接启动、RootView 渲染 |
+| 应用状态 | `src/app_state.rs` | AppState (Global)、ConnectionStatus、AppEvent 定义 |
+| 运行时桥接 | `src/bridge.rs` | tokio OS 线程启动、BLE 连接重试、Provider 调度、GPUI 事件桥接 |
 | 数据提供者 | `src/providers/` | Provider trait 定义 + 四个具体数据源实现 |
 | 构建配置 | `Cargo.toml` | 依赖声明（gpui, tokio, reqwest, chrono 等） |
