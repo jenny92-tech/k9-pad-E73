@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# INPUT:  sys, DIGIT_ICONS bitmap data (embedded)
+# OUTPUT: stdout — layer_digit_icons/main_layer_texts/pad_titles C arrays
+# POS:    Layer 数据生成器 — 输出 WouoUI_k9pad.c 中与 NUM_LAYERS 同步的查找表
 """Generate layer-dependent C data blocks for WouoUI_k9pad.c.
 
 Usage:

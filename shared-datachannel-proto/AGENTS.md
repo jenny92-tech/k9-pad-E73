@@ -19,6 +19,6 @@ Protocol version 1（`PROTOCOL_VERSION` 常量）；支持 `GetCapabilities`/`Ca
 
 ## 业务域清单
 
-| 名称 | 文件 | 职责 |
-|------|------|------|
-| 协议定义 | `src/lib.rs` | CommandId/DataType 枚举 + PadConfig/DeviceCapabilities + parse/serialize |
+| 名称 | 文件/子目录 | 职责 |
+|------|------------|------|
+| 源码 | `src/` | 协议定义 + 设备标识（CommandId/DataType/PadConfig/DeviceCapabilities + USB VID/PID/BLE UUID） |
