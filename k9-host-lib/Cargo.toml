@@ -6,14 +6,14 @@ edition = "2021"
 [features]
 default = ["ble", "usb"]
 ble = ["dep:bluest"]
-usb = ["dep:serialport"]
+usb = ["dep:hidapi"]
 ai-quota = ["dep:reqwest", "dep:serde", "dep:serde_json", "dep:dirs"]
 
 [dependencies]
 k9-datachannel-proto = { package = "shared-datachannel-proto", path = "../shared-datachannel-proto", features = ["std"] }
 tokio = { version = "1", features = ["sync", "time", "macros", "rt"] }
 bluest = { version = "0.6", optional = true }
-serialport = { version = "4", optional = true }
+hidapi = { version = "2.6", optional = true }
 reqwest = { version = "0.12", features = ["json"], optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }

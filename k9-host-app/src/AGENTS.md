@@ -7,9 +7,12 @@
 
 ## 逻辑
 
-- `main.rs`：初始化 `env_logger`，创建 GPUI `Application`，设置 `AppState` 全局状态，启动 tokio 桥接线程，打开 800x600 窗口并渲染 `RootView`（观察 AppState 变化自动刷新）
-- `app_state.rs`：定义 `AppState`（GPUI Global）、`ConnectionStatus` 枚举、`AppEvent` 跨运行时事件类型
+- `main.rs`：初始化 `env_logger`，创建 GPUI `Application`，设置 `AppState` 全局状态，启动 tokio 桥接线程和测试桥接线程，打开 800x600 窗口并渲染 `RootView`（根据 Page 状态切换 Home/Test 页面）
+- `app_state.rs`：定义 `AppState`（GPUI Global）、`ConnectionStatus`、`Page` 枚举、`AppEvent` 跨运行时事件类型，包含 `TestState` 字段
 - `bridge.rs`：tokio-GPUI 桥接层 — `start_tokio_thread()` 创建独立 OS 线程运行 tokio runtime，`tokio_main()` 负责 BLE 连接/设备查询/Provider 启动/数据调度，`bridge_loop()` 在 GPUI 端以 50ms 间隔轮询事件更新 AppState
+- `test_state.rs`：测试控制台状态定义 — `TransportType`、`TestCommand`、`TestEvent`、`TestState`、`LogEntry`
+- `test_bridge.rs`：测试桥接层 — 独立 tokio 线程接收 `TestCommand`，通过 `AnyTransport` + `K9Client` 执行 BLE/USB 操作，返回 `TestEvent`
+- `test_view.rs`：测试控制台 GPUI 页面 — Transport 选择、连接控制、命令按钮组、滚动日志区
 - `providers/`：定义 `Provider` trait（`name`, `function_bit`, `start`）和 `DisplayUpdate`/`DisplayData` 类型，子模块实现四种具体数据源
 
 ## 约束
@@ -21,7 +24,10 @@
 
 | 名称 | 文件/子目录 | 职责 |
 |------|------------|------|
-| 应用入口 | `main.rs` | GPUI 窗口创建、AppState 注册、tokio 桥接启动、RootView 渲染 |
-| 应用状态 | `app_state.rs` | AppState (Global)、ConnectionStatus、AppEvent 定义 |
+| 应用入口 | `main.rs` | GPUI 窗口创建、AppState 注册、tokio 桥接启动、页面路由、RootView 渲染 |
+| 应用状态 | `app_state.rs` | AppState (Global)、ConnectionStatus、Page、AppEvent 定义 |
 | 运行时桥接 | `bridge.rs` | tokio OS 线程启动、BLE 连接、Provider 调度、GPUI 事件桥接 |
+| 测试状态 | `test_state.rs` | TestCommand、TestEvent、TestState、LogEntry 类型定义 |
+| 测试桥接 | `test_bridge.rs` | 测试 tokio 线程、AnyTransport 连接、K9Client 命令执行 |
+| 测试页面 | `test_view.rs` | 测试控制台 GPUI UI（Transport 选择、命令按钮、日志滚动区） |
 | 数据提供者 | `providers/` | Provider trait + 四种数据源（时间、音量、B站、AI 配额） |

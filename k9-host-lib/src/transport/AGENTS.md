@@ -7,22 +7,22 @@
 
 ## 逻辑
 
-- `mod.rs`：定义 `Transport` trait（send, receive, disconnect, is_connected）和 `TransportError` 枚举，feature-gate 导入 ble/usb 子模块
+- `mod.rs`：定义 `Transport` trait（send, receive, disconnect, is_connected）和 `TransportError` 枚举，feature-gate 导入 ble/usb 子模块，提供 `AnyTransport` enum dispatch（需同时启用 ble+usb feature）
 - `ble.rs`：`BleTransport` — 使用 `bluest` 库，先尝试已连接的外设（macOS paired keyboards），再扫描发现设备，通过 GATT characteristic 读写数据，后台 task 缓冲 TX notification
-- `usb.rs`：`UsbTransport` — 使用 `serialport` 库，通过 USB VID/PID 自动检测 K9-Pad 设备，CDC serial 收发，读取时先解析 header 再读 payload
+- `usb.rs`：`UsbTransport` — 使用 `hidapi` 库，通过 USB VID/PID + usage_page=0xFF61 自动检测 K9-Pad data channel 设备。`auto_connect()` 优先匹配 usage_page，回退到 VID/PID 匹配 + PING/PONG 探测。所有阻塞式 HID I/O 通过 `spawn_blocking` 运行，不阻塞 tokio runtime。每次 send 发送 65 字节（1 字节 report ID + 64 字节数据），每次 receive 读取 64 字节并从 header 解析实际长度
 
 ## 约束
 
 - 所有 Transport 实现必须 `Send + Sync`（用于跨 async task）
 - BLE 通过 `bluest` 库，仅支持其兼容的平台（macOS CoreBluetooth、Linux BlueZ、Windows WinRT）
-- USB 使用阻塞式 `serialport` 读写，但通过 `tokio::sync::Mutex` 包装实现 async 接口
+- USB 使用阻塞式 `hidapi` 读写，通过 `Arc<std::sync::Mutex>` + `tokio::task::spawn_blocking` 避免阻塞 tokio runtime
 - BLE notification 缓冲区上限 32 条，满后丢弃新消息
-- USB 接收采用 header-then-payload 两段式读取，依赖 `shared-datachannel-proto` 解析 header
+- USB Raw HID 每报文固定 64 字节，通过 `shared-datachannel-proto` header 解析实际包长
 
 ## 业务域清单
 
 | 名称 | 文件/子目录 | 职责 |
 |------|------------|------|
-| Trait 定义 | `mod.rs` | Transport trait + TransportError + 子模块 feature-gate |
+| Trait 定义 | `mod.rs` | Transport trait + TransportError + AnyTransport enum dispatch + 子模块 feature-gate |
 | BLE 传输 | `ble.rs` | BleTransport — 蓝牙设备发现 + GATT I/O + notification 缓冲 |
-| USB 传输 | `usb.rs` | UsbTransport — USB CDC serial 连接 + 帧读取 |
+| USB 传输 | `usb.rs` | UsbTransport — USB Raw HID 连接 + usage_page 过滤 + 非阻塞报文读写 |

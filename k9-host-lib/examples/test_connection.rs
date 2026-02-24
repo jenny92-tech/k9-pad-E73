@@ -19,9 +19,9 @@ struct Cli {
     #[arg(long, group = "transport")]
     usb: bool,
 
-    /// USB serial port path (auto-detect if omitted)
+    /// USB HID device path (auto-detect if omitted)
     #[arg(long, requires = "usb")]
-    port: Option<String>,
+    device: Option<String>,
 }
 
 #[tokio::main]
@@ -32,7 +32,7 @@ async fn main() {
 
     // Default to BLE if neither flag is specified
     if cli.usb {
-        run_usb(cli.port).await;
+        run_usb(cli.device).await;
     } else {
         run_ble().await;
     }
@@ -78,40 +78,37 @@ async fn run_ble() {
 }
 
 #[cfg(feature = "usb")]
-async fn run_usb(port: Option<String>) {
+async fn run_usb(_device: Option<String>) {
     use k9_host_lib::UsbTransport;
 
     println!("=== K9-Pad USB Connection Test ===\n");
 
-    // List available ports for reference
-    let ports = UsbTransport::list_ports();
-    if !ports.is_empty() {
-        println!("Available serial ports: {}", ports.join(", "));
+    // List available HID devices for reference
+    let devices = UsbTransport::list_devices();
+    if !devices.is_empty() {
+        println!("K9-Pad HID devices:");
+        for d in &devices {
+            println!(
+                "  {} (VID:{:04X} PID:{:04X} usage_page:0x{:04X}) {}",
+                d.path, d.vendor_id, d.product_id, d.usage_page, d.product
+            );
+        }
     }
 
     // --- Connect ---
-    print_step("Connecting via USB...");
+    print_step("Connecting via USB Raw HID...");
     let start = Instant::now();
-    let transport = match port {
-        Some(ref p) => {
-            println!("  (using port: {p})");
-            UsbTransport::connect(p, 115200)
-        }
-        None => {
-            println!("  (auto-detecting K9-Pad...)");
-            UsbTransport::auto_connect()
-        }
-    };
-    let transport = match transport {
-        Ok(t) => {
-            print_ok(start.elapsed());
-            t
-        }
-        Err(e) => {
-            print_fail(&format!("{e}"));
-            return;
+    let transport = {
+        println!("  (auto-detecting K9-Pad + probing data channel interface...)");
+        match UsbTransport::auto_connect().await {
+            Ok(t) => t,
+            Err(e) => {
+                print_fail(&format!("{e}"));
+                return;
+            }
         }
     };
+    print_ok(start.elapsed());
 
     let client = K9Client::new(transport);
     run_test_sequence(&client).await;
@@ -128,7 +125,7 @@ async fn run_usb(port: Option<String>) {
 }
 
 #[cfg(not(feature = "usb"))]
-async fn run_usb(_port: Option<String>) {
+async fn run_usb(_device: Option<String>) {
     eprintln!("USB feature is not enabled. Rebuild with `--features usb`.");
 }
 

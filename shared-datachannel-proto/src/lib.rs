@@ -1,7 +1,9 @@
 // INPUT:  (no_std core only)
-// OUTPUT: CommandId, DataType, Packet, parse/serialize API
-// POS:    BLE 数据通道协议 crate，固件和主机共用
+// OUTPUT: CommandId, DataType, Packet, parse/serialize API, device identifiers
+// POS:    数据通道协议 crate，固件和主机共用
 #![cfg_attr(not(test), no_std)]
+
+pub mod identifiers;
 
 /// Maximum total packet size (header + payload), aligned with BLE characteristic size and USB CDC.
 pub const MAX_PACKET_SIZE: usize = 64;

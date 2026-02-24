@@ -14,15 +14,16 @@ use uuid::Uuid;
 
 use super::{Transport, TransportError};
 
+use k9_datachannel_proto::identifiers;
+
 /// Custom BLE service UUID for K9-Pad data channel.
-/// Must match the UUID in RMK's data_channel_service.rs.
-pub const K9_SERVICE_UUID: Uuid = Uuid::from_u128(0xe9dc0001_7374_7265_616d_6b3970616400);
+pub const K9_SERVICE_UUID: Uuid = Uuid::from_u128(identifiers::BLE_SERVICE_UUID);
 
 /// Characteristic UUID for host -> device writes (RX from device perspective).
-pub const K9_RX_CHAR_UUID: Uuid = Uuid::from_u128(0xe9dc0002_7374_7265_616d_6b3970616400);
+pub const K9_RX_CHAR_UUID: Uuid = Uuid::from_u128(identifiers::BLE_RX_CHAR_UUID);
 
 /// Characteristic UUID for device -> host notifications (TX from device perspective).
-pub const K9_TX_CHAR_UUID: Uuid = Uuid::from_u128(0xe9dc0003_7374_7265_616d_6b3970616400);
+pub const K9_TX_CHAR_UUID: Uuid = Uuid::from_u128(identifiers::BLE_TX_CHAR_UUID);
 
 /// Maximum number of buffered BLE notifications before dropping new ones.
 const MAX_RECV_BUF_SIZE: usize = 32;

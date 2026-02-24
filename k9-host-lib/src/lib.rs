@@ -1,5 +1,5 @@
 // INPUT:  client, transport, ai_quota modules
-// OUTPUT: Public API re-exports — K9Client, Transport, BleTransport, UsbTransport, ai_quota
+// OUTPUT: Public API re-exports — K9Client, Transport, AnyTransport, BleTransport, UsbTransport, ai_quota
 // POS:    Crate root — facade that unifies all host-side communication primitives
 
 pub mod client;
@@ -12,6 +12,9 @@ pub use transport::{Transport, TransportError};
 pub use transport::ble::BleTransport;
 #[cfg(feature = "usb")]
 pub use transport::usb::UsbTransport;
+
+#[cfg(all(feature = "ble", feature = "usb"))]
+pub use transport::AnyTransport;
 
 #[cfg(feature = "ai-quota")]
 pub mod ai_quota;
