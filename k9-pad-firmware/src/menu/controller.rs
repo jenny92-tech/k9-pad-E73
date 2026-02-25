@@ -1,18 +1,16 @@
-// INPUT:  rmk(KeyEvent, RotaryEncoder), embassy_time, menu::state
+// INPUT:  rmk(KeyEvent, DeferredEventState, RotaryEncoder), menu::state
 // OUTPUT: menu_controller_task() async task
 // POS:    监听 SW1/编码器/确认键 → 转换为 MenuInput 发送到 channel
 // menu/controller.rs - 菜单控制器
 //
-// 手动订阅 KeyEvent，在菜单模式下将按键转换为菜单输入
-//
-// 注意：这个控制器只能**监听**事件，不能**拦截**事件
-// 所以在菜单模式下，按键仍会发送键码
+// 订阅 KeyEvent，响应 RMK hold-tap deferred key 的决策结果：
+// - SW1 短按：RMK 自动 tap ESC（菜单模式下被 should_intercept_key 拦截）
+// - SW1 长按：收到 HoldActivated → 进入菜单
+// - 菜单模式短按释放：收到 Normal release → 发送 MenuInput::Back
 
-use rmk::embassy_futures::select::{Either, select};
-use embassy_time::{Duration, Instant, Timer};
 use rmk::event::{EventSubscriber, KeyboardEventPos, KeyPos, RotaryEncoderPos};
 use rmk::input_device::rotary_encoder::Direction;
-use rmk::KeyEvent;
+use rmk::{DeferredEventState, KeyEvent};
 
 use super::state::{MenuInput, MENU_INPUT, MENU_STATE};
 
@@ -27,17 +25,17 @@ const SELECT_COL: u8 = 2;
 /// 编码器 ID
 const ENCODER_ID: u8 = 0;
 
-/// 长按阈值 (毫秒)
-const LONG_PRESS_MS: u64 = 500;
-
 /// 菜单控制器
+///
+/// SW1 (ESC) 使用 RMK 的 hold-tap deferred key：
+/// - 短按（<500ms）→ RMK 自动 tap ESC（菜单模式下被 should_intercept_key 拦截）
+/// - 长按（≥500ms）→ RMK 发送 HoldActivated，controller 进入菜单
+/// - 菜单模式短按 → RMK tap 被拦截，controller 收到 release 事件发送 Back
 pub struct MenuController {
-    /// SW1 按下时间
-    sw1_press_time: Option<Instant>,
-    /// SW1 是否已触发长按
-    sw1_long_triggered: bool,
     /// 菜单是否激活（缓存）
     menu_active: bool,
+    /// 当前 SW1 按压是否已触发 hold（用于忽略 hold 后的 release）
+    sw1_hold_activated: bool,
 }
 
 impl MenuController {
@@ -46,30 +44,18 @@ impl MenuController {
         super::state::init_menu_intercept();
 
         Self {
-            sw1_press_time: None,
-            sw1_long_triggered: false,
             menu_active: false,
+            sw1_hold_activated: false,
         }
     }
 
-    /// 主循环：订阅 KeyEvent + 50ms 轮询
+    /// 主循环：订阅 KeyEvent
     pub async fn run(&mut self) -> ! {
         let mut subscriber = rmk::key_event_subscriber();
 
         loop {
-            match select(
-                subscriber.next_event(),
-                Timer::after(Duration::from_millis(50)),
-            )
-            .await
-            {
-                Either::First(event) => {
-                    self.on_key_event(event).await;
-                }
-                Either::Second(_) => {
-                    self.poll().await;
-                }
-            }
+            let event = subscriber.next_event().await;
+            self.on_key_event(event).await;
         }
     }
 
@@ -88,7 +74,7 @@ impl MenuController {
 
         match keyboard_event.pos {
             KeyboardEventPos::Key(KeyPos { row, col }) => {
-                self.handle_matrix_key(row, col, keyboard_event.pressed).await;
+                self.handle_matrix_key(row, col, keyboard_event.pressed, &event).await;
             }
             KeyboardEventPos::RotaryEncoder(RotaryEncoderPos { id, direction }) => {
                 self.handle_encoder(id, direction, keyboard_event.pressed).await;
@@ -97,10 +83,10 @@ impl MenuController {
     }
 
     /// 处理矩阵按键
-    async fn handle_matrix_key(&mut self, row: u8, col: u8, pressed: bool) {
-        // SW1 (ESC)
+    async fn handle_matrix_key(&mut self, row: u8, col: u8, pressed: bool, event: &KeyEvent) {
+        // SW1 (ESC) — hold-tap 由 RMK 处理
         if row == SW1_ROW && col == SW1_COL {
-            self.handle_sw1(pressed).await;
+            self.handle_sw1(pressed, event).await;
             return;
         }
 
@@ -112,63 +98,34 @@ impl MenuController {
 
     /// 处理 SW1 (ESC)
     ///
-    /// SW1 是延迟按键，由控制器决定是否发送 ESC：
-    /// - 短按 + 菜单未激活 → 发送 ESC
-    /// - 短按 + 菜单激活 → 菜单返回
-    /// - 长按 → 进入菜单（在 poll 中处理）
-    async fn handle_sw1(&mut self, pressed: bool) {
-        if pressed {
-            // 按下：记录时间
-            self.sw1_press_time = Some(Instant::now());
-            self.sw1_long_triggered = false;
-        } else {
-            // 释放
-            if let Some(press_time) = self.sw1_press_time.take() {
-                // 如果已触发长按，不处理释放
-                if self.sw1_long_triggered {
-                    self.sw1_long_triggered = false;
-                    return;
+    /// RMK hold-tap deferred key 处理：
+    /// - HoldActivated → 长按：进入菜单
+    /// - Normal + release + 菜单激活 → 短按被 should_intercept_key 拦截，发送 Back
+    /// - Normal + release + 菜单未激活 → RMK 已自动 tap ESC，无需处理
+    async fn handle_sw1(&mut self, pressed: bool, event: &KeyEvent) {
+        match event.deferred_state {
+            DeferredEventState::HoldActivated => {
+                // 长按超时：进入菜单
+                self.sw1_hold_activated = true;
+                if !self.menu_active {
+                    let _ = MENU_INPUT.try_send(MenuInput::EnterMenu);
+                    defmt::info!("Menu: SW1 hold -> EnterMenu");
                 }
-
-                let duration = press_time.elapsed();
-                if duration.as_millis() < 300 {
-                    // 短按
-                    if self.menu_active {
-                        // 菜单模式：返回/退出，不发送 ESC
-                        let _ = MENU_INPUT.try_send(MenuInput::Back);
-                        defmt::info!("Menu: SW1 short press -> Back");
-                    } else {
-                        // 正常模式：手动发送 ESC（按下+释放）
-                        use rmk::types::keycode::{KeyCode, HidKeyCode};
-                        rmk::send_keycode(KeyCode::Hid(HidKeyCode::Escape), true);
-                        rmk::send_keycode(KeyCode::Hid(HidKeyCode::Escape), false);
-                        defmt::info!("Menu: SW1 short press -> Send ESC");
-                    }
-                }
-                // 长按（300-500ms 之间释放）：什么都不做
             }
-        }
-    }
-
-    /// 轮询方法（每 50ms 调用）
-    /// 检测 SW1 长按
-    async fn poll(&mut self) {
-        // 更新菜单状态缓存
-        if let Some(state) = MENU_STATE.try_get() {
-            self.menu_active = state.active;
-        }
-
-        // 检查 SW1 长按
-        if let Some(press_time) = self.sw1_press_time {
-            if !self.sw1_long_triggered {
-                let duration = press_time.elapsed();
-                if duration.as_millis() >= LONG_PRESS_MS {
-                    self.sw1_long_triggered = true;
-                    if !self.menu_active {
-                        let _ = MENU_INPUT.try_send(MenuInput::EnterMenu);
-                        defmt::info!("Menu: SW1 long press -> EnterMenu");
-                    }
+            DeferredEventState::Normal => {
+                if pressed {
+                    // 新的按压：重置 hold 标记
+                    self.sw1_hold_activated = false;
+                } else if self.sw1_hold_activated {
+                    // hold 后的释放：忽略，不发 Back
+                    self.sw1_hold_activated = false;
+                    defmt::info!("Menu: SW1 hold release -> ignored");
+                } else if self.menu_active {
+                    // 菜单模式短按释放：tap 已被 should_intercept_key 拦截，发送 Back
+                    let _ = MENU_INPUT.try_send(MenuInput::Back);
+                    defmt::info!("Menu: SW1 short press -> Back");
                 }
+                // 非菜单模式短按：RMK 自动处理 tap，无需干预
             }
         }
     }

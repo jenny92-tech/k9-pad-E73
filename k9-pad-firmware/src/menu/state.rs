@@ -86,8 +86,10 @@ pub static MENU_STATE: Watch<ThreadModeRawMutex, MenuState, 2> = Watch::new();
 /// - 编码器：拦截，菜单模式下不发送
 #[cfg(not(test))]
 pub fn init_menu_intercept() {
-    // SW1 设为延迟按键（长按/短按检测，由控制器决定是否发送）
-    rmk::deferred_key_set(0, 0, 3);  // SW1 (ESC) at ROW0/COL3
+    // SW1 设为延迟按键（hold-tap 模式：500ms 阈值）
+    // - 短按（<500ms）→ RMK 自动发送 ESC tap
+    // - 长按（≥500ms）→ RMK 通知 controller HoldActivated
+    rmk::deferred_key_set_with_tap(0, 0, 3, 500);  // SW1 (ESC) at ROW0/COL3
 
     // 确认键设为拦截按键（菜单模式下不发送）
     rmk::menu_intercept_set_key(0, 0, 2);  // W4B152110 at ROW0/COL2
