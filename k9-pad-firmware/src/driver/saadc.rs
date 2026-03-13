@@ -41,9 +41,10 @@ pub unsafe fn read_single(ain_channel: u8) -> i16 {
     core::ptr::write_volatile((SAADC_BASE + 0x514) as *mut u32, 0); // PSELN = NC
 
     // CONFIG: Gain=1/6, Ref=Internal(0.6V), Tacq=40us, Mode=SE
+    // GAIN field (bits 8-10): 0=1/6, 1=1/5, 2=1/4, ...
     core::ptr::write_volatile(
         (SAADC_BASE + 0x518) as *mut u32,
-        (2 << 8) | (0 << 12) | (5 << 16) | (0 << 20),
+        (0 << 8) | (0 << 12) | (5 << 16) | (0 << 20),
     );
 
     // Resolution 12-bit
