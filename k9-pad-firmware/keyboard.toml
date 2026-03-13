@@ -89,6 +89,10 @@ i2c = { sda = "P0_08", scl = "P1_09", reset = "P0_06", address = "0x3c" }
 # 默认 256 字节，增大到 2048 以支持更多/更长的宏
 macro_space_size = 2048
 
+# 鼠标滚轮：每次滚动 20 个单位（默认 1），上限 127（默认 4）
+mouse_wheel_delta = 20
+mouse_wheel_max = 127
+
 # Combos: 同时按多个键触发另一个动作（如 SW2+SW3 = Enter）
 # 默认 8 组
 combo_max_num = 8
