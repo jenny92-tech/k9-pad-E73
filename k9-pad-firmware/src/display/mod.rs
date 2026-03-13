@@ -22,7 +22,7 @@ use crate::settings::{SETTINGS, keys};
 use crate::wououi::{WouoUI, WououiInput, SCREEN_WIDTH, SCREEN_HEIGHT};
 use render::{draw_keyboard_ui, draw_data_channel_ui};
 use rmk::ble::BleState;
-use rmk::event::{BleStateChangeEvent, SubscribableEvent};
+use rmk::event::{BatteryStateEvent, BleStateChangeEvent, SubscribableEvent, publish_event};
 
 /// 亮度百分比转 SH1107 对比度寄存器值
 const MIN_CONTRAST: u16 = 5;
@@ -325,8 +325,11 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
                 is_charging,
             };
 
-            // 广播给其他消费者（如未来的 BLE battery service）
+            // 广播给其他消费者
             battery_status_tx.send(battery_status);
+
+            // 同步给 RMK BLE Battery Service，让 Windows/macOS 能看到电量
+            publish_event(BatteryStateEvent::Normal(smoothed_pct));
 
             defmt::info!(
                 "Battery: {}mV raw={}% smooth={}% charging={}",
