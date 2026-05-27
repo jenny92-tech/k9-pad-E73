@@ -12,7 +12,7 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 # Git forks pinned by commit hash — these are custom forks with K9-Pad-specific
 # patches not yet upstreamed. Pin by rev (not branch) for reproducibility.
-rmk = { git = "https://github.com/jenny92-tech/rmk", branch = "feat/upstream-catchup", features = [
+rmk = { git = "https://github.com/jenny92-tech/rmk", rev = "4d6b9cc1", features = [
     "async_matrix", "nrf52840_ble", "data_channel", "controller", "adafruit_bl",
 ] }
 k9-datachannel-proto = { package = "shared-datachannel-proto", path = "../shared-datachannel-proto" }
