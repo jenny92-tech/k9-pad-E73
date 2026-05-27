@@ -77,12 +77,11 @@ phase = "resolution"
 resolution = 2
 internal_pullup = true
 
-[display]
-enabled = true
-# SH1107 64x128 I2C OLED (横放，旋转后 128x64)
-width = 128
-height = 64
-i2c = { sda = "P0_08", scl = "P1_09", reset = "P0_06", address = "0x3c" }
+# [display] 段已删除。
+# 上游 RMK 0.10 的 [display] schema 假设走 DisplayProcessor + DisplayRenderer trait（同步 render），
+# 不适配我们的 600 行 async 渲染主循环（provider / 菜单状态机 / settings / BLE profile 切换）。
+# 我们改用上游 `add_interrupt!` 扩展点：在 main.rs 里追加 TWISPI0 IRQ 绑定，
+# custom_entry 里手动初始化 i2c (P0_08/P1_09) 与 reset_pin (P0_06)，喂给 crate::run_display。
 
 [rmk]
 # Macros: 一键触发一串按键序列（如一键 Ctrl+C→Ctrl+V）

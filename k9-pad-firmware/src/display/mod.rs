@@ -21,8 +21,9 @@ use crate::mode::{CURRENT_MODE, NUM_LAYERS};
 use crate::settings::{SETTINGS, keys};
 use crate::wououi::{WouoUI, WououiInput, SCREEN_WIDTH, SCREEN_HEIGHT};
 use render::{draw_keyboard_ui, draw_data_channel_ui};
-use rmk::ble::BleState;
-use rmk::event::{BatteryStateEvent, BleStateChangeEvent, SubscribableEvent, publish_event};
+use rmk::types::ble::BleState;
+use rmk::types::battery::{BatteryStatus as RmkBatteryStatus, ChargeState};
+use rmk::event::{BatteryStatusEvent, ConnectionStatusChangeEvent, SubscribableEvent, publish_event};
 
 /// 亮度百分比转 SH1107 对比度寄存器值
 const MIN_CONTRAST: u16 = 5;
@@ -127,11 +128,13 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
     let mut confirmed_quick_menu: bool = saved_quick_menu != 0;
     defmt::info!("Restored quick_menu: {}", saved_quick_menu != 0);
 
-    // 从 RMK 恢复当前 BLE profile，同步菜单 UI
-    let saved_user = rmk::ble::ACTIVE_PROFILE.load(core::sync::atomic::Ordering::SeqCst);
-    wououi.set_selected_user(saved_user);
-    let mut current_user: u8 = saved_user;
-    defmt::info!("Restored BLE profile: User {}", saved_user);
+    // 当前 BLE profile：开机先默认 0，随后通过 ConnectionStatusChangeEvent 被动同步。
+    // RMK 0.10 把旧的 pub static ACTIVE_PROFILE 收成了 pub(crate) fn current_profile()
+    // （refactor/connection_status），设计意图是让外部通过事件订阅感知 profile 变化。
+    // RMK 在 storage init 从 flash 加载 profile 后会触发 ConnectionStatusChangeEvent，
+    // 下面 ble_sub 那条 select 分支会消费它，把 UI 更新到正确值。
+    wououi.set_selected_user(0);
+    let mut current_user: u8 = 0;
 
     // 屏幕睡眠状态
     let mut screen_on = true;
@@ -167,7 +170,7 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
     let mut last_contrast_write = Instant::now();
     const CONTRAST_MIN_INTERVAL: Duration = Duration::from_millis(100);
     // BLE 连接状态：通过 RMK 事件系统订阅（替代有 bug 的 get_connection_state 轮询）
-    let mut ble_sub = BleStateChangeEvent::subscriber();
+    let mut ble_sub = ConnectionStatusChangeEvent::subscriber();
     let mut ble_connected = false;
 
     // 首次读取电池状态（避免启动后 5 秒内显示 0%）
@@ -329,7 +332,10 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
             battery_status_tx.send(battery_status);
 
             // 同步给 RMK BLE Battery Service，让 Windows/macOS 能看到电量
-            publish_event(BatteryStateEvent::Normal(smoothed_pct));
+            publish_event(BatteryStatusEvent(RmkBatteryStatus::Available {
+                charge_state: ChargeState::from(is_charging),
+                level: Some(smoothed_pct),
+            }));
 
             defmt::info!(
                 "Battery: {}mV raw={}% smooth={}% charging={}",
@@ -341,17 +347,30 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
 
         }
 
-        // ====== BLE 状态：非阻塞消费事件 ======
+        // ====== BLE 状态 + Profile 同步：非阻塞消费事件 ======
+        // ConnectionStatusChangeEvent payload 是 ConnectionStatus { ble: { state, profile }, ... }
+        // BLE 连接状态 + RMK 内部 profile 变化都通过这一个事件流过来
         while let Some(event) = ble_sub.try_next_message_pure() {
-            let new_connected = matches!(event.state, BleState::Connected);
+            let ble = event.0.ble;
+
+            // BLE 连接状态
+            let new_connected = matches!(ble.state, BleState::Connected);
             if new_connected != ble_connected {
                 defmt::info!(
                     ">>> BLE event: {:?}, connected: {} -> {}",
-                    defmt::Debug2Format(&event.state),
+                    defmt::Debug2Format(&ble.state),
                     ble_connected,
                     new_connected
                 );
                 ble_connected = new_connected;
+            }
+
+            // Profile 同步：RMK 在 storage init 加载完成 / 用户通过 switch_ble_profile
+            // 切换时都会触发这个事件，从这里被动跟上 UI 状态。
+            if ble.profile != current_user {
+                defmt::info!("BLE profile sync: {} -> {}", current_user, ble.profile);
+                current_user = ble.profile;
+                wououi.set_selected_user(ble.profile);
             }
         }
 

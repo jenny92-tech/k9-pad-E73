@@ -86,16 +86,15 @@ pub static MENU_STATE: Watch<ThreadModeRawMutex, MenuState, 2> = Watch::new();
 /// - 编码器：拦截，菜单模式下不发送
 #[cfg(not(test))]
 pub fn init_menu_intercept() {
-    // SW1 设为延迟按键（hold-tap 模式：500ms 阈值）
-    // - 短按（<500ms）→ RMK 自动发送 ESC tap
-    // - 长按（≥500ms）→ RMK 通知 controller HoldActivated
-    rmk::deferred_key_set_with_tap(0, 0, 3, 500);  // SW1 (ESC) at ROW0/COL3
+    // SW1 设为延迟按键：RMK 不再代发它的 keymap action，全权交给 controller。
+    // hold/tap 决策 + tap 时手动 send_keycode 都在 menu::controller 里做（见 handle_sw1）。
+    rmk::controller::deferred_key_set(0, 0, 3);  // SW1 at ROW0/COL3
 
     // 确认键设为拦截按键（菜单模式下不发送）
-    rmk::menu_intercept_set_key(0, 0, 2);  // W4B152110 at ROW0/COL2
+    rmk::controller::menu_intercept_set_key(0, 0, 2);  // W4B152110 at ROW0/COL2
 
     // 启用编码器拦截
-    rmk::MENU_INTERCEPT_ENCODER.store(true, Ordering::Relaxed);
+    rmk::controller::MENU_INTERCEPT_ENCODER.store(true, Ordering::Relaxed);
 
     defmt::info!("Menu: SW1 deferred, Select intercepted, Encoder intercepted");
 }
@@ -104,5 +103,5 @@ pub fn init_menu_intercept() {
 #[cfg(not(test))]
 #[inline]
 pub fn set_rmk_menu_mode(active: bool) {
-    rmk::MENU_MODE_ACTIVE.store(active, Ordering::Relaxed);
+    rmk::controller::MENU_MODE_ACTIVE.store(active, Ordering::Relaxed);
 }
