@@ -177,6 +177,19 @@ impl FlashStore {
             }
         }
     }
+
+    /// 擦除整个设置页：所有键回到 `read` 的 default 值。
+    /// 用于菜单"重置 App 设置 / 全部删除"。擦除是阻塞操作(~85ms)。
+    pub fn erase(&self) {
+        // SAFETY: Erasing our dedicated settings page via NVMC registers.
+        // This page is reserved for settings and not used by the linker.
+        unsafe {
+            nvmc_set_mode(2); // Erase mode
+            core::ptr::write_volatile(NVMC_ERASEPAGE as *mut u32, self.page_addr);
+            nvmc_wait_ready();
+            nvmc_set_mode(0); // Back to read mode
+        }
+    }
 }
 
 // ============== NVMC Low-Level ==============

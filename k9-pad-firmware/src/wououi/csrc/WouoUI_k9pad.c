@@ -32,7 +32,7 @@ static ConfWin dfu_conf_win;
 static ValWin brightness_win;
 static ListWin screen_timeout_win;
 
-//--------DFU/Bootloader 确认弹窗的 pending action (1=DFU, 2=Bootloader)
+//--------确认弹窗的 pending action (1=DFU 2=Bootloader 3=ResetKeys 4=ResetApp 5=ClearBond 6=EraseAll)
 static uint8_t pending_dfu_action = 0;
 
 //--------当前选中的 Layer (0..NUM_LAYERS-1)
@@ -47,8 +47,13 @@ static uint8_t g_dfu_requested = 0;
 //--------USB Bootloader 请求标志 (由 Settings 回调设置，Rust 侧轮询)
 static uint8_t g_usb_bl_requested = 0;
 
-//--------Clear Bond 请求标志 (由 User 页面回调设置，Rust 侧轮询)
+//--------Clear Bond 请求标志 (由 User 页面/Settings 回调设置，Rust 侧轮询)
 static uint8_t g_clear_bond_requested = 0;
+
+//--------重置请求标志 (由 Settings 确认弹窗设置，Rust 侧轮询)
+static uint8_t g_reset_keys_requested = 0;  // 重置键位配置 (保留配对/App设置)
+static uint8_t g_reset_app_requested = 0;   // 重置 App 设置 (FlashStore)
+static uint8_t g_erase_all_requested = 0;   // 全部删除
 
 //--------Screen timeout 选项 (ListWin 选择器)
 static char* screen_timeout_options[5] = {
@@ -62,7 +67,7 @@ static char* screen_timeout_options[5] = {
 #define FEATURES_PAGE_NUM   (NUM_LAYERS + 1)   // 标题 + N 个 Layer 入口
 #define USER_PAGE_NUM       5
 #define SETTINGS_PAGE_NUM   6
-#define ABOUT_PAGE_NUM      4
+#define ABOUT_PAGE_NUM      8
 
 //--------文本查找表 (gen_layer_data.py 生成，与 NUM_LAYERS 同步)
 static char* main_layer_texts[NUM_LAYERS] = {
@@ -198,7 +203,11 @@ static Option about_option_array[ABOUT_PAGE_NUM] = {
     {.text = (char *)"- About K9-Pad"},
     {.text = (char *)"- FW: v0.2.0"},
     {.text = (char *)"- RMK Framework"},
-    {.text = (char *)"- WouoUI Menu"}
+    {.text = (char *)"- WouoUI Menu"},
+    {.text = (char *)"! Reset Keys"},
+    {.text = (char *)"! Reset App"},
+    {.text = (char *)"! Clear Bond"},
+    {.text = (char *)"! Erase All"}
 };
 
 //--------回调函数
@@ -267,12 +276,14 @@ static bool DFUConfWin_Callback(const Page *cur_page, InputMsg msg) {
             break;
         case msg_click:
             if (cw->conf_ret) { // User selected "Yes"
-                if (pending_dfu_action == 1) {
-                    g_dfu_requested = 1;
-                    WouoUI_MsgWinPageSetContent(&msg_win, (char*)"Entering DFU...");
-                } else {
-                    g_usb_bl_requested = 1;
-                    WouoUI_MsgWinPageSetContent(&msg_win, (char*)"To Bootloader...");
+                switch (pending_dfu_action) {
+                    case 1: g_dfu_requested = 1;        WouoUI_MsgWinPageSetContent(&msg_win, (char*)"Entering DFU..."); break;
+                    case 2: g_usb_bl_requested = 1;     WouoUI_MsgWinPageSetContent(&msg_win, (char*)"To Bootloader..."); break;
+                    case 3: g_reset_keys_requested = 1; WouoUI_MsgWinPageSetContent(&msg_win, (char*)"Reset keys..."); break;
+                    case 4: g_reset_app_requested = 1;  WouoUI_MsgWinPageSetContent(&msg_win, (char*)"Reset settings..."); break;
+                    case 5: g_clear_bond_requested = 1; WouoUI_MsgWinPageSetContent(&msg_win, (char*)"Bond cleared!"); break;
+                    case 6: g_erase_all_requested = 1;  WouoUI_MsgWinPageSetContent(&msg_win, (char*)"Erasing all..."); break;
+                    default: break;
                 }
                 // Jump from Settings (not ConfWin) to MsgWin, so MsgWin returns to Settings
                 WouoUI_JumpToPage(cur_page->last_page, &msg_win);
@@ -314,6 +325,42 @@ static bool SettingsPage_Callback(const Page *cur_page, InputMsg msg) {
             pending_dfu_action = 2;
             dfu_conf_win.content = (char*)"Enter Bootloader?";
             dfu_conf_win.conf_ret = false; // Default to "No" for safety
+            WouoUI_JumpToPage((PageAddr)cur_page, &dfu_conf_win);
+            break;
+    }
+    return false;
+}
+
+// About 页面回调：底部 4 个重置/清理项 → 弹确认窗（复用 dfu_conf_win / pending_dfu_action）
+static bool AboutPage_Callback(const Page *cur_page, InputMsg msg) {
+    if (msg != msg_click) return false;
+
+    Option* opt = WouoUI_ListTitlePageGetSelectOpt(cur_page);
+    if (opt == NULL) return false;
+
+    switch (opt->order) {
+        case 4: // Reset Keys - keymap config (keep bonds & app settings)
+            pending_dfu_action = 3;
+            dfu_conf_win.content = (char*)"Reset key config?";
+            dfu_conf_win.conf_ret = false;
+            WouoUI_JumpToPage((PageAddr)cur_page, &dfu_conf_win);
+            break;
+        case 5: // Reset App - our app settings (FlashStore)
+            pending_dfu_action = 4;
+            dfu_conf_win.content = (char*)"Reset app settings?";
+            dfu_conf_win.conf_ret = false;
+            WouoUI_JumpToPage((PageAddr)cur_page, &dfu_conf_win);
+            break;
+        case 6: // Clear Bond - clear BLE bonds
+            pending_dfu_action = 5;
+            dfu_conf_win.content = (char*)"Clear BLE bonds?";
+            dfu_conf_win.conf_ret = false;
+            WouoUI_JumpToPage((PageAddr)cur_page, &dfu_conf_win);
+            break;
+        case 7: // Erase All - wipe everything
+            pending_dfu_action = 6;
+            dfu_conf_win.content = (char*)"Erase EVERYTHING?";
+            dfu_conf_win.conf_ret = false;
             WouoUI_JumpToPage((PageAddr)cur_page, &dfu_conf_win);
             break;
     }
@@ -375,7 +422,7 @@ void WouoUI_UserInit(void) {
     WouoUI_ListPageSetFirstSelectable(&settings_page, 1);
 
     // About 页面
-    WouoUI_ListPageInit(&about_page, ABOUT_PAGE_NUM, about_option_array, Setting_none, NULL);
+    WouoUI_ListPageInit(&about_page, ABOUT_PAGE_NUM, about_option_array, Setting_none, AboutPage_Callback);
 
     // 共用消息弹窗
     WouoUI_MsgWinPageInit(&msg_win, NULL, false, 2, NULL);
@@ -510,6 +557,30 @@ uint8_t WouoUI_K9Pad_GetClearBondRequested(void) {
 // Clear the Clear Bond request flag
 void WouoUI_K9Pad_ClearClearBondRequested(void) {
     g_clear_bond_requested = 0;
+}
+
+// 重置键位配置请求
+uint8_t WouoUI_K9Pad_GetResetKeysRequested(void) {
+    return g_reset_keys_requested;
+}
+void WouoUI_K9Pad_ClearResetKeysRequested(void) {
+    g_reset_keys_requested = 0;
+}
+
+// 重置 App 设置请求
+uint8_t WouoUI_K9Pad_GetResetAppRequested(void) {
+    return g_reset_app_requested;
+}
+void WouoUI_K9Pad_ClearResetAppRequested(void) {
+    g_reset_app_requested = 0;
+}
+
+// 全部删除请求
+uint8_t WouoUI_K9Pad_GetEraseAllRequested(void) {
+    return g_erase_all_requested;
+}
+void WouoUI_K9Pad_ClearEraseAllRequested(void) {
+    g_erase_all_requested = 0;
 }
 
 // Get Quick Menu enabled state (1=on, 0=off)

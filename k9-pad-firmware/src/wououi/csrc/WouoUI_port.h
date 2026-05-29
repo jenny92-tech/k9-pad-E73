@@ -86,6 +86,14 @@ uint8_t WouoUI_K9Pad_GetClearBondRequested(void);
 // K9-Pad specific: Clear the Clear Bond request flag
 void WouoUI_K9Pad_ClearClearBondRequested(void);
 
+// K9-Pad specific: reset requests (Settings 确认弹窗设置, Rust 轮询)
+uint8_t WouoUI_K9Pad_GetResetKeysRequested(void);
+void WouoUI_K9Pad_ClearResetKeysRequested(void);
+uint8_t WouoUI_K9Pad_GetResetAppRequested(void);
+void WouoUI_K9Pad_ClearResetAppRequested(void);
+uint8_t WouoUI_K9Pad_GetEraseAllRequested(void);
+void WouoUI_K9Pad_ClearEraseAllRequested(void);
+
 #ifdef __cplusplus
 }
 #endif

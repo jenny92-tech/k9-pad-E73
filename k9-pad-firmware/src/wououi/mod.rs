@@ -88,6 +88,14 @@ extern "C" {
     /// Clear the Clear Bond request flag
     fn WouoUI_K9Pad_ClearClearBondRequested();
 
+    /// Reset requests (Settings 确认弹窗设置)
+    fn WouoUI_K9Pad_GetResetKeysRequested() -> u8;
+    fn WouoUI_K9Pad_ClearResetKeysRequested();
+    fn WouoUI_K9Pad_GetResetAppRequested() -> u8;
+    fn WouoUI_K9Pad_ClearResetAppRequested();
+    fn WouoUI_K9Pad_GetEraseAllRequested() -> u8;
+    fn WouoUI_K9Pad_ClearEraseAllRequested();
+
     /// Check if menu exit was requested
     fn WouoUI_K9Pad_GetExitRequested() -> u8;
 
@@ -304,6 +312,54 @@ impl WouoUI {
         unsafe {
             if WouoUI_K9Pad_GetClearBondRequested() != 0 {
                 WouoUI_K9Pad_ClearClearBondRequested();
+                true
+            } else {
+                false
+            }
+        }
+    }
+
+    /// Check and consume "重置键位配置" request (keymap reset, keeps bonds & app settings)
+    pub fn take_reset_keys_request(&mut self) -> bool {
+        if !self.initialized {
+            return false;
+        }
+        // SAFETY: 读取并清零 C 侧 g_reset_keys_requested 标志，纯标志操作。
+        unsafe {
+            if WouoUI_K9Pad_GetResetKeysRequested() != 0 {
+                WouoUI_K9Pad_ClearResetKeysRequested();
+                true
+            } else {
+                false
+            }
+        }
+    }
+
+    /// Check and consume "重置 App 设置" request (our FlashStore)
+    pub fn take_reset_app_request(&mut self) -> bool {
+        if !self.initialized {
+            return false;
+        }
+        // SAFETY: 读取并清零 C 侧 g_reset_app_requested 标志，纯标志操作。
+        unsafe {
+            if WouoUI_K9Pad_GetResetAppRequested() != 0 {
+                WouoUI_K9Pad_ClearResetAppRequested();
+                true
+            } else {
+                false
+            }
+        }
+    }
+
+    /// Check and consume "全部删除" request (RMK storage + app settings)
+    pub fn take_erase_all_request(&mut self) -> bool {
+        if !self.initialized {
+            return false;
+        }
+        // SAFETY: 读取并清零 C 侧 g_erase_all_requested 标志，纯标志操作。
+        unsafe {
+            if WouoUI_K9Pad_GetEraseAllRequested() != 0 {
+                WouoUI_K9Pad_ClearEraseAllRequested();
                 true
             } else {
                 false
