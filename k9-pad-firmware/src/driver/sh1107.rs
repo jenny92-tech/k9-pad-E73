@@ -52,9 +52,9 @@ impl<I2C: I2c> Sh1107<I2C> {
             0xD3, 0x60, // Set display offset = 96
             0xD5, 0xF0, // Set clock divide ratio (高刷新率)
             0xD9, 0x22, // Set pre-charge period
-            0xDA, 0x12, // Set COM pins configuration
+            0xDA, 0x12, // SSD1306 残留：SH1107 无 0xDA 命令(被忽略)；0x12 被当作"设置列高地址"(无害，flush 每页都重设列地址)
             0xDB, 0x35, // Set VCOMH deselect level
-            0x20, 0x00, // Set horizontal addressing mode
+            0x20, 0x00, // 0x20 = 页寻址模式(Page Mode, SH1107)——flush() 依赖此模式，必须保留；后面的 0x00 是 SSD1306 残留(被当作"列低地址=0"，无害)
             0xA4,       // Entire display ON (resume from RAM)
             0xA6,       // Normal display
         ];

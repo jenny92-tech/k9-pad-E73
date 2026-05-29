@@ -30,13 +30,17 @@ pub unsafe fn configure_input_pullup(port_base: u32, pin: u8) {
 
 /// Configure pin as output and drive high (PIN_CNF = 0x03, OUTSET).
 ///
+/// 顺序：先 OUTSET 把 OUT 锁存为高，再把 DIR 置为输出。这样使能输出缓冲的
+/// 瞬间引脚直接驱动高电平；若反过来（先 DIR=输出）会先驱动 OUT 默认的低电平，
+/// 在 OLED 电源等 active-high 引脚上产生一次上电毛刺。
+///
 /// SAFETY: Caller must ensure `port_base` is valid and no concurrent access.
 pub unsafe fn configure_output_high(port_base: u32, pin: u8) {
-    let addr = (port_base + PIN_CNF_OFFSET + pin as u32 * 4) as *mut u32;
-    core::ptr::write_volatile(addr, 0x0000_0003);
-
     let outset_addr = (port_base + OUTSET_OFFSET) as *mut u32;
     core::ptr::write_volatile(outset_addr, 1 << pin);
+
+    let addr = (port_base + PIN_CNF_OFFSET + pin as u32 * 4) as *mut u32;
+    core::ptr::write_volatile(addr, 0x0000_0003);
 }
 
 /// Read pin level. Returns `true` if pin is high.

@@ -7,10 +7,20 @@ use k9_datachannel_proto::*;
 
 use super::DisplayCommand;
 
-// Firmware version — keep in sync with Cargo.toml `version = "0.2.0"`
-const FW_MAJOR: u8 = 0;
-const FW_MINOR: u8 = 2;
-const FW_PATCH: u8 = 0;
+// Firmware version — 编译期从 Cargo.toml 的 `version` 派生，避免手抄漂移。
+const fn parse_u8(s: &str) -> u8 {
+    let bytes = s.as_bytes();
+    let mut result: u8 = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        result = result * 10 + (bytes[i] - b'0');
+        i += 1;
+    }
+    result
+}
+const FW_MAJOR: u8 = parse_u8(env!("CARGO_PKG_VERSION_MAJOR"));
+const FW_MINOR: u8 = parse_u8(env!("CARGO_PKG_VERSION_MINOR"));
+const FW_PATCH: u8 = parse_u8(env!("CARGO_PKG_VERSION_PATCH"));
 
 /// 解析一个完整的 64 字节包，返回 DisplayCommand（如果是 SET_DISPLAY）
 pub fn parse_display_packet(buf: &[u8]) -> Option<DisplayCommand> {
