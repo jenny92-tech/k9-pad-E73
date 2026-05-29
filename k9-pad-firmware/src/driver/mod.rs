@@ -1,9 +1,9 @@
-// INPUT:  board, gpio, saadc, sh1107, flash
-// OUTPUT: pub mod board/gpio/saadc/sh1107/flash; enable_i2c_pullups(), enable_oled_power()
+// INPUT:  board, gpio, sh1107, flash
+// OUTPUT: pub mod board/gpio/sh1107/flash; enable_i2c_pullups(), enable_oled_power()
 // POS:    硬件抽象层入口，聚合芯片级驱动 + GPIO 初始化
+// 注：SAADC 改用 embassy-nrf 异步驱动（见 battery::run_battery），不再有本地寄存器封装。
 pub mod board;
 pub mod gpio;
-pub mod saadc;
 pub mod sh1107;
 pub mod flash;
 

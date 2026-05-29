@@ -23,8 +23,8 @@ pub const OLED_POWER: (u32, u8) = (P0_BASE, 5); // P0.05
 pub const CHARGE_DET: (u32, u8) = (P0_BASE, 7); // P0.07
 
 // ===== SAADC (V2 may change ADC channel) =====
-/// Battery ADC input: AIN6 = P0.30
-pub const BATTERY_ADC_AIN: u8 = 6;
+// Battery ADC input: AIN6 = P0.30。现由 embassy 异步 SAADC 经 p.P0_30 接管
+// （见 main.rs 构造、battery::run_battery 采样），不再需要 AIN 通道常量。
 
 // ===== Battery Calibration (V2 may change resistor divider) =====
 /// VBAT = raw × RAW_TO_MV_NUM / RAW_TO_MV_DEN
@@ -42,6 +42,9 @@ pub const DISPLAY_WIDTH: u32 = 128;
 pub const DISPLAY_HEIGHT: u32 = 64;
 
 // ===== Flash Settings (V2 typically unchanged) =====
-pub const SETTINGS_PAGE_ADDR: u32 = 0x000F_3000;
+// 必须指向 memory.x 中标注的 "Settings page — FlashStore KV" (0x000FF000–0x00100000，
+// 最后 4KB)。切勿用 0x000F3000：那是 Bootloader 区首页，FlashStore 的 ERASEPAGE
+// 会擦掉 Bootloader 导致设备变砖、USB DFU 也无法恢复。
+pub const SETTINGS_PAGE_ADDR: u32 = 0x000F_F000;
 pub const SETTINGS_PAGE_SIZE: usize = 4096;
 pub const SETTINGS_MAGIC: [u8; 2] = [0x4B, 0x39]; // "K9"

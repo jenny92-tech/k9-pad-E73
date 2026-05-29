@@ -22,8 +22,7 @@ use crate::settings::{SETTINGS, keys};
 use crate::wououi::{WouoUI, WououiInput, SCREEN_WIDTH, SCREEN_HEIGHT};
 use render::{draw_keyboard_ui, draw_data_channel_ui};
 use rmk::types::ble::BleState;
-use rmk::types::battery::{BatteryStatus as RmkBatteryStatus, ChargeState};
-use rmk::event::{BatteryStatusEvent, ConnectionStatusChangeEvent, SubscribableEvent, publish_event};
+use rmk::event::{ConnectionStatusChangeEvent, SubscribableEvent};
 
 /// 亮度百分比转 SH1107 对比度寄存器值
 const MIN_CONTRAST: u16 = 5;
@@ -151,14 +150,9 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
     let mut dc_rotation_timer = Instant::now();
     const DC_ROTATION_INTERVAL: Duration = Duration::from_secs(4);
 
-    // 初始化充电检测引脚 (P0.07, 上拉输入)
-    // SAFETY: P0.07 未被其他任务使用，见 init_charge_detect_pin 文档
-    unsafe { battery::init_charge_detect_pin() };
-    defmt::info!("Battery: charge detect pin (P0.07) initialized");
-
-    // 获取状态发送器和接收器
+    // 获取状态发送器和接收器（电池由 battery 任务采样，这里只订阅）
     let menu_state_tx = MENU_STATE.sender();
-    let battery_status_tx = BATTERY_STATUS.sender();
+    let mut battery_rx = BATTERY_STATUS.receiver().unwrap();
     let mode_tx = CURRENT_MODE.sender();
 
     // 初始状态
@@ -173,26 +167,10 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
     let mut ble_sub = ConnectionStatusChangeEvent::subscriber();
     let mut ble_connected = false;
 
-    // 首次读取电池状态（避免启动后 5 秒内显示 0%）
-    let mut battery_status = {
-        let voltage = battery::read_battery_voltage_mv();
-        let percentage = battery::calc_percentage(voltage);
-        let is_charging = unsafe { battery::read_charge_pin() };
-        let status = battery::BatteryStatus {
-            voltage_mv: voltage,
-            percentage,
-            is_charging,
-        };
-        battery_status_tx.send(status);
-        defmt::info!("Battery init: {}mV {}% charging={}", voltage, percentage, is_charging);
-        status
-    };
+    // 电池状态由 battery 任务异步采样并经 BATTERY_STATUS 广播；这里只读最新值。
+    // 启动初期(任务首次采样完成前)显示默认值，随后几十 ms 内被刷新。
+    let mut battery_status = battery::BatteryStatus::default();
 
-    // 电池读取计时
-    let mut last_battery_read = Instant::now();
-    const BATTERY_READ_INTERVAL: Duration = Duration::from_secs(5);
-    // EMA 平滑用的累积值 (×10 精度，避免浮点)
-    let mut smooth_pct_x10: u16 = battery_status.percentage as u16 * 10;
 
     // 发送初始菜单状态
     let initial_state = MenuState {
@@ -302,49 +280,9 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
             }
         }
 
-        // 更新电池状态（每 5 秒直接读取 SAADC + 充电引脚）
-        if now.duration_since(last_battery_read) >= BATTERY_READ_INTERVAL {
-            last_battery_read = now;
-
-            let voltage = battery::read_battery_voltage_mv();
-            let raw_pct = battery::calc_percentage(voltage);
-            let is_charging = unsafe { battery::read_charge_pin() };
-
-            // EMA 平滑：smooth = raw * 3 + prev * 7（α ≈ 0.3）
-            // 使用 ×10 精度避免整数截断累积误差
-            // 充电时不平滑（允许快速上升显示充电进度）
-            let smoothed_pct = if is_charging {
-                smooth_pct_x10 = raw_pct as u16 * 10;
-                raw_pct
-            } else {
-                smooth_pct_x10 =
-                    (raw_pct as u16 * 10 * 3 + smooth_pct_x10 * 7 + 5) / 10;
-                ((smooth_pct_x10 + 5) / 10) as u8
-            };
-
-            battery_status = battery::BatteryStatus {
-                voltage_mv: voltage,
-                percentage: smoothed_pct,
-                is_charging,
-            };
-
-            // 广播给其他消费者
-            battery_status_tx.send(battery_status);
-
-            // 同步给 RMK BLE Battery Service，让 Windows/macOS 能看到电量
-            publish_event(BatteryStatusEvent(RmkBatteryStatus::Available {
-                charge_state: ChargeState::from(is_charging),
-                level: Some(smoothed_pct),
-            }));
-
-            defmt::info!(
-                "Battery: {}mV raw={}% smooth={}% charging={}",
-                voltage,
-                raw_pct,
-                smoothed_pct,
-                is_charging
-            );
-
+        // 从 battery 任务读取最新电池状态（非阻塞，每帧检查一次）
+        if let Some(s) = battery_rx.try_changed() {
+            battery_status = s;
         }
 
         // ====== BLE 状态 + Profile 同步：非阻塞消费事件 ======
@@ -478,6 +416,24 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
             if wououi.take_clear_bond_request() {
                 rmk::clear_ble_bond();
                 defmt::info!("Clear bond for User {} (profile {})", current_user, current_user);
+            }
+
+            // 检测 重置请求（确认弹窗已通过，C 侧置位）。每个都在落盘后软复位生效。
+            if wououi.take_reset_keys_request() {
+                defmt::info!("Reset keyboard config (keymap, keep bonds/app settings)");
+                rmk::request_keyboard_config_reset().await;
+                cortex_m::peripheral::SCB::sys_reset();
+            }
+            if wououi.take_reset_app_request() {
+                defmt::info!("Reset app settings (FlashStore)");
+                SETTINGS.erase();
+                cortex_m::peripheral::SCB::sys_reset();
+            }
+            if wououi.take_erase_all_request() {
+                defmt::info!("Erase all (RMK storage + app settings)");
+                rmk::reset_all_storage().await;
+                SETTINGS.erase();
+                cortex_m::peripheral::SCB::sys_reset();
             }
 
             // 检测数据通道配置变化，通知主机

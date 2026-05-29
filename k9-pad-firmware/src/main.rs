@@ -1,5 +1,5 @@
 // INPUT:  rmk, embassy_nrf, battery, data_channel, mode, display, menu, wououi
-// OUTPUT: Firmware entry point (pre_init + rmk_keyboard macro)
+// OUTPUT: Firmware entry point (rmk_keyboard macro)
 // POS:    程序入口，初始化硬件并启动 RMK 键盘主循环
 #![no_std]
 #![no_main]
@@ -26,14 +26,8 @@ pub use mode::*;
 pub use display::run_display;
 pub use menu::*;
 
-/// Pre-init: enable DC/DC converter for low power.
-// SAFETY: Called by cortex-m-rt before main, before .data/.bss init.
-// Only writes to hardware register (no RAM access needed).
-#[cortex_m_rt::pre_init]
-unsafe fn pre_init() {
-    const DCDCEN_ADDR: *mut u32 = 0x4000_0078 as *mut u32;
-    core::ptr::write_volatile(DCDCEN_ADDR, 1);
-}
+// 注：DC/DC 转换器由 RMK 的 chip_init（embassy_nrf::init，config.dcdc.reg0/reg1=true）
+// 在启动时正确开启（DCDCEN @ 0x4000_0578），固件无需再手动配置。
 
 // RMK keyboard macro
 #[rmk_keyboard]
@@ -43,6 +37,7 @@ mod keyboard {
     // this for us — we bring our own.
     add_interrupt! {
         TWISPI0 => ::embassy_nrf::twim::InterruptHandler<::embassy_nrf::peripherals::TWISPI0>;
+        SAADC => ::embassy_nrf::saadc::InterruptHandler;
     }
 
     #[Overwritten(entry)]
@@ -68,6 +63,18 @@ mod keyboard {
             display_i2c_buf,
         );
         let reset_pin = p.P0_06;
+
+        // 电池 SAADC（P0.30 = AIN6），异步、由 battery 任务接管。配置与旧的寄存器路径一致
+        // （Gain 1/6、Ref 内部 0.6V、Tacq 40us、12-bit），且**不调 calibrate()**，保证
+        // raw→mV 换算与现有放电曲线不变（曲线是按未校准的原始路径标定的）。
+        let mut bat_ch = ::embassy_nrf::saadc::ChannelConfig::single_ended(p.P0_30);
+        bat_ch.time = ::embassy_nrf::saadc::Time::_40US;
+        let battery_saadc = ::embassy_nrf::saadc::Saadc::new(
+            p.SAADC,
+            Irqs,
+            ::embassy_nrf::saadc::Config::default(),
+            [bat_ch],
+        );
 
         // RMK transports + WPM processor — created here because
         // #[Overwritten(entry)] replaces the macro's default entry body
@@ -102,7 +109,10 @@ mod keyboard {
             ),
             ::rmk::embassy_futures::join::join(
                 crate::run_display(i2c, reset_pin),
-                crate::data_channel::run_data_channel()
+                ::rmk::embassy_futures::join::join(
+                    crate::data_channel::run_data_channel(),
+                    crate::battery::run_battery(battery_saadc),
+                )
             )
         ).await;
     }

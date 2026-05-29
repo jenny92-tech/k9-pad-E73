@@ -1,11 +1,15 @@
-// INPUT:  driver::gpio, driver::saadc, driver::board, embassy_sync
-// OUTPUT: BatteryStatus, BATTERY_STATUS watch, calc_percentage(), battery hardware wrappers
-// POS:    电池管理应用层：充电检测、电量计算，通过 Watch 广播状态；硬件操作委托 driver 层
+// INPUT:  driver::gpio, driver::board, embassy_nrf::saadc, embassy_time, rmk::event
+// OUTPUT: BatteryStatus, BATTERY_STATUS watch, calc_percentage(), run_battery() 异步采样任务
+// POS:    电池管理应用层：异步 SAADC 采样任务（充电检测、电量计算、EMA 平滑），经 Watch 广播 + RMK BLE 电量服务
 
+use embassy_nrf::saadc::Saadc;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::watch::Watch;
+use embassy_time::{Duration, Timer};
+use rmk::event::{publish_event, BatteryStatusEvent};
+use rmk::types::battery::{BatteryStatus as RmkBatteryStatus, ChargeState};
 
-use crate::driver::{board, gpio, saadc};
+use crate::driver::{board, gpio};
 
 /// 电池状态数据
 #[derive(Clone, Copy, Debug, Default)]
@@ -22,19 +26,21 @@ pub static BATTERY_STATUS: Watch<ThreadModeRawMutex, BatteryStatus, 1> = Watch::
 /// 基于典型 LiPo 单芯电池轻负载放电特性，按电压降序排列
 /// 锂电池放电曲线高度非线性：3.9V~3.7V 是长平台区（容量主体），
 /// 两端（满充/接近耗尽）电压变化快但容量变化小。
+// 节点 (电压 mV, 电量 %)，已按 ADC 偏移重新标定。曲线对电压严格单调递减、
+// 两端钳位到 100/0；各节点压降非均匀（平台区密、两端疏），符合 LiPo 特性。
 const DISCHARGE_CURVE: [(u16, u8); 12] = [
-    (4100, 100), // 4200 - 100
-    (3980, 90),  // 4060 - 84
-    (3900, 80),  // 3980 - 76
-    (3850, 70),  // 3920 - 69
-    (3800, 60),  // 3870 - 63
-    (3770, 50),  // 3830 - 59
-    (3740, 40),  // 3790 - 54
-    (3700, 30),  // 3750 - 50
-    (3660, 20),  // 3710 - 46
-    (3630, 10),  // 3670 - 41
-    (3480, 5),   // 3500 - 22
-    (3300, 0),   // 3300 - 0
+    (4100, 100),
+    (3980, 90),
+    (3900, 80),
+    (3850, 70),
+    (3800, 60),
+    (3770, 50),
+    (3740, 40),
+    (3700, 30),
+    (3660, 20),
+    (3630, 10),
+    (3480, 5),
+    (3300, 0),
 ];
 
 /// 根据电压计算电量百分比（查找表 + 线性插值）
@@ -85,18 +91,68 @@ pub unsafe fn read_charge_pin() -> bool {
     !gpio::read_pin(board::CHARGE_DET.0, board::CHARGE_DET.1)
 }
 
-/// 读取电池电压 (mV)，多次采样取平均以降低噪声。
+/// 电池采样任务：异步 SAADC（P0.30/AIN6）+ 充电检测。每 5 秒一轮：多次采样取平均、
+/// 算电量、EMA 平滑，广播到 `BATTERY_STATUS`，并同步给 RMK BLE 电量服务。
 ///
-/// 使用 board 中的校准常量将 ADC 原始值转换为电压。
-pub fn read_battery_voltage_mv() -> u16 {
-    let mut sum: u32 = 0;
-    let mut i: u32 = 0;
-    while i < board::BATTERY_SAMPLE_COUNT {
-        // SAFETY: SAADC not used by RMK (battery_adc_pin commented out in keyboard.toml).
-        // Blocking wait ~tens of microseconds per sample.
-        let raw = unsafe { saadc::read_single(board::BATTERY_ADC_AIN) }.max(0) as u32;
-        sum += (raw * board::BATTERY_RAW_TO_MV_NUM) / board::BATTERY_RAW_TO_MV_DEN;
-        i += 1;
+/// 关键点：用 embassy 异步 SAADC（`sample().await`），转换期间**让出执行器**，
+/// 不再像旧的寄存器忙等那样阻塞 BLE/渲染任务。
+pub async fn run_battery(mut saadc: Saadc<'static, 1>) -> ! {
+    // 充电检测引脚（P0.07 上拉输入）。
+    // SAFETY: P0.07 未被其他任务使用，见 init_charge_detect_pin 文档。
+    unsafe { init_charge_detect_pin() };
+
+    let tx = BATTERY_STATUS.sender();
+    let mut smooth_pct_x10: u16 = 0;
+    let mut initialized = false;
+
+    loop {
+        // 多次采样取平均降噪（沿用 board::BATTERY_SAMPLE_COUNT）。
+        let mut sum: u32 = 0;
+        let mut i: u32 = 0;
+        while i < board::BATTERY_SAMPLE_COUNT {
+            let mut buf = [0i16; 1];
+            saadc.sample(&mut buf).await;
+            let raw = buf[0].max(0) as u32;
+            sum += (raw * board::BATTERY_RAW_TO_MV_NUM) / board::BATTERY_RAW_TO_MV_DEN;
+            i += 1;
+        }
+        let voltage = (sum / board::BATTERY_SAMPLE_COUNT) as u16;
+        let raw_pct = calc_percentage(voltage);
+        // SAFETY: GPIO 数字读，瞬时无副作用。
+        let is_charging = unsafe { read_charge_pin() };
+
+        // EMA 平滑：smooth = raw*3 + prev*7（α≈0.3），×10 精度防截断累积误差。
+        // 充电时 / 首次不平滑（允许快速反映充电进度，且首次直接取真实值而非从 0 爬升）。
+        let smoothed_pct = if is_charging || !initialized {
+            smooth_pct_x10 = raw_pct as u16 * 10;
+            raw_pct
+        } else {
+            smooth_pct_x10 = (raw_pct as u16 * 10 * 3 + smooth_pct_x10 * 7 + 5) / 10;
+            ((smooth_pct_x10 + 5) / 10) as u8
+        };
+        initialized = true;
+
+        let status = BatteryStatus {
+            voltage_mv: voltage,
+            percentage: smoothed_pct,
+            is_charging,
+        };
+        tx.send(status);
+
+        // 同步给 RMK BLE Battery Service（让 Windows/macOS 看到电量）。
+        publish_event(BatteryStatusEvent(RmkBatteryStatus::Available {
+            charge_state: ChargeState::from(is_charging),
+            level: Some(smoothed_pct),
+        }));
+
+        defmt::info!(
+            "Battery: {}mV raw={}% smooth={}% charging={}",
+            voltage,
+            raw_pct,
+            smoothed_pct,
+            is_charging
+        );
+
+        Timer::after(Duration::from_secs(5)).await;
     }
-    (sum / board::BATTERY_SAMPLE_COUNT) as u16
 }
