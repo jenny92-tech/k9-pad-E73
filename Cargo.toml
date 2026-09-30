@@ -3,6 +3,7 @@ members = [
     "shared-datachannel-proto",
     "k9-host-lib",
     "k9-host-app",
+    "k9-hook-bridge",
 ]
 exclude = [
     "k9-pad-firmware",

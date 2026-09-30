@@ -16,6 +16,7 @@ k9-pad-E73-master/                     (monorepo 根目录)
 ├── shared-datachannel-proto/           ← 共享协议 crate（no_std）
 ├── k9-host-lib/                        ← 主机通信库（BLE/USB transport）
 ├── k9-host-app/                        ← GPUI 桌面应用
+├── k9-hook-bridge/                     ← AI CLI hook 桥接器 + Claude Code 安装器
 │
 ├── k9-pad-firmware/                    ← 固件（exclude 出 workspace，独立构建）
 │   ├── Cargo.toml
@@ -31,7 +32,7 @@ k9-pad-E73-master/                     (monorepo 根目录)
 └── .cargo/config.toml                  ← workspace 级（无 target 设置）
 ```
 
-**Workspace 模式**：`shared-datachannel-proto`、`k9-host-lib`、`k9-host-app` 在 workspace 内；
+**Workspace 模式**：`shared-datachannel-proto`、`k9-host-lib`、`k9-host-app`、`k9-hook-bridge` 在 workspace 内；
 `k9-pad-firmware` 被 `exclude`，使用独立 `.cargo/config.toml`（ARM target）。
 
 ---
@@ -82,8 +83,8 @@ cargo make build
 cargo make objcopy
 cargo make uf2
 
-# 运行固件测试
-cargo test --lib
+# 运行固件测试（host target）
+cargo test --lib --target aarch64-apple-darwin
 
 # 检查编译
 cargo check
@@ -128,7 +129,7 @@ cargo test -p shared-datachannel-proto
 
 ## Testing
 
-- **MUST** 推送前运行固件测试：`cd k9-pad-firmware && cargo test --lib`
+- **MUST** 推送前运行固件测试：`cd k9-pad-firmware && cargo test --lib --target aarch64-apple-darwin`
 - **MUST** 推送前运行 host 测试：`cargo test`（根目录）
 - 嵌入式相关代码使用 `#[cfg(test)]` 隔离测试
 
@@ -177,3 +178,4 @@ cargo test -p shared-datachannel-proto
 | 共享协议 | `shared-datachannel-proto/` | BLE 数据通道协议 crate（no_std 兼容） |
 | 主机通信库 | `k9-host-lib/` | BLE/USB transport 抽象 + K9Client |
 | 桌面应用 | `k9-host-app/` | GPUI 桌面管理应用（providers: time/volume/bilibili） |
+| Hook 桥接器 | `k9-hook-bridge/` | AI CLI hook 事件 → Unix socket 桥接 + Claude/Codex/Kimi/Pi/OMP hooks 安装器 |
