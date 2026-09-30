@@ -12,3 +12,6 @@ __pycache__/
 # Note: k9-pad-firmware/Cargo.lock is intentionally committed (binary
 # project needs reproducible builds). The workspace root Cargo.lock is
 # managed separately by the workspace.
+
+# AI tool session records
+.alva/
