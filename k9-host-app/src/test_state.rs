@@ -29,6 +29,25 @@ pub enum TestCommand {
     PushNumeric { slot: u8, value: i32 },
     PushProgress { slot: u8, value: u8 },
     ClearSlot(u8),
+    /// 声明 2×2 组件布局 + 4 个组件（Time/Vol/Subs/AI）
+    CompLayout,
+    /// 设置组件值（Text）
+    CompSetText { id: u8, text: String, wake: bool },
+    /// 设置组件值（Numeric）
+    CompSetNumeric { id: u8, value: i32, wake: bool },
+    /// 设置组件值（Progress）
+    CompSetU8 { id: u8, value: u8, wake: bool },
+    /// 设置组件值（Percentage）
+    CompSetPercent { id: u8, value: u8, wake: bool },
+    /// 设置组件值（Checkbox）
+    CompSetCheckbox { id: u8, on: bool, wake: bool },
+    /// 授权弹窗测试（ConfirmCancel：Allow/Deny）
+    ShowConfirmDialog,
+    /// AI 多选弹窗测试（Choice：3 个选项）
+    ShowChoiceDialog,
+    /// 向本机 hook server 注入一条 hook 事件（刘海面板流程自测）。
+    /// blocking=true 时等待审批响应并把响应 JSON 打到日志。
+    InjectHook { json: String, blocking: bool },
 }
 
 /// Events sent from the tokio test bridge thread back to GPUI.

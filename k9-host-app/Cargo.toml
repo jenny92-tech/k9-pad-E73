@@ -5,12 +5,26 @@ edition = "2021"
 
 [dependencies]
 gpui = "0.2"
+notchkit-core = { git = "https://github.com/jenny92-tech/notchkit-rs.git", rev = "d21d6f4d68efe4c04c5be6cf88521d280bba32e7" }
 k9-host-lib = { path = "../k9-host-lib", features = ["ai-quota"] }
 k9-datachannel-proto = { package = "shared-datachannel-proto", path = "../shared-datachannel-proto", features = ["std"] }
 tokio = { version = "1", features = ["full"] }
 log = "0.4"
 env_logger = "0.11"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 chrono = "0.4"
 anyhow = "1"
 reqwest = { version = "0.12", features = ["json"] }
+
+# macOS：禁用系统 Automatic/Sudden Termination（常驻刘海面板在无焦点时会被系统当成闲置应用杀掉）；
+# objc2-app-kit + raw-window-handle：把刘海浮窗 setFrame 进菜单栏行（绕过 AppKit frame 约束）
+[target.'cfg(target_os = "macos")'.dependencies]
+notchkit-macos = { git = "https://github.com/jenny92-tech/notchkit-rs.git", rev = "d21d6f4d68efe4c04c5be6cf88521d280bba32e7" }
+objc2-foundation = "0.3"
+objc2-app-kit = "0.3"
+# disable-encoding-assertions：子类化覆盖 constrainFrameRect:toScreen: 时，
+# screen 参数用 *const c_void 编码(^v) 与被覆盖方法的对象编码(@) 不同，
+# debug 构建下 add_method 的保守校验会 panic；两者 ABI 同为指针宽度，安全
+objc2 = { version = "0.6", features = ["disable-encoding-assertions"] }
+raw-window-handle = "0.6"
