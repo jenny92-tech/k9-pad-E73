@@ -10,32 +10,47 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-# Git forks pinned by commit hash — these are custom forks with K9-Pad-specific
-# patches not yet upstreamed. Pin by rev (not branch) for reproducibility.
-rmk = { git = "https://github.com/jenny92-tech/rmk", rev = "ac179536", features = [
+# Host-compatible deps — lib 纯逻辑模块（data_channel/mode/menu）在 cfg(test) 下只用这些，
+# 保证 host 端 `cargo test --lib --target <host>` 可编译运行
+k9-datachannel-proto = { package = "shared-datachannel-proto", path = "../shared-datachannel-proto" }
+heapless = { version = "0.9.2", default-features = false }
+embassy-sync = { version = "0.8", features = ["defmt"] }
+
+# rmk 的 stub 条目 — 仅供 rmk-macro 的 get_rmk_features() 解析（它只读主 [dependencies]
+# 表来判断 keyboard.toml 与 feature 的奇偶性）。optional + 无任何 feature 引用它，
+# 所以 host 端永不编译；ARM 构建实际使用的是下方 target-specific 条目（同名依赖，
+# cargo 会做 feature 统一）。删除此 stub 会导致固件构建报 storage parity 宏错误。
+rmk = { git = "https://github.com/jenny92-tech/rmk", rev = "6e70e358", optional = true, features = [
     "async_matrix", "nrf52840_ble", "data_channel", "controller", "adafruit_bl",
 ] }
-k9-datachannel-proto = { package = "shared-datachannel-proto", path = "../shared-datachannel-proto" }
+
+# ARM-only deps — 仅在 thumbv7em 固件构建时编译，host 测试不拉入嵌入式依赖
+[target.'cfg(all(target_arch = "arm", target_os = "none"))'.dependencies]
+# Git forks pinned by commit hash — these are custom forks with K9-Pad-specific
+# patches not yet upstreamed. Pin by rev (not branch) for reproducibility.
+rmk = { git = "https://github.com/jenny92-tech/rmk", rev = "6e70e358", features = [
+    "async_matrix", "nrf52840_ble", "data_channel", "controller", "adafruit_bl",
+] }
 embedded-graphics = "0.8"
 embedded-hal-async = "1.0"
-nrf-sdc = { git = "https://github.com/haobogu/nrf-sdc", rev = "ffe59a7aefaaa145a3d2474602f33387f80dcefa", features = [
+nrf-sdc = { git = "https://github.com/alexmoon/nrf-sdc", rev = "abe49d22ebfc85fae134eb082fbfddf752016a55", features = [
     "defmt",
     "peripheral",
+    "central",
     "nrf52840",
 ] }
-nrf-mpsl = { git = "https://github.com/haobogu/nrf-sdc", rev = "ffe59a7aefaaa145a3d2474602f33387f80dcefa", features = [
+nrf-mpsl = { git = "https://github.com/alexmoon/nrf-sdc", rev = "abe49d22ebfc85fae134eb082fbfddf752016a55", features = [
     "defmt",
     "critical-section-impl",
     "nrf52840",
 ] }
-bt-hci = { version = "0.8", default-features = false, features = ["defmt"] }
+bt-hci = { version = "0.9", default-features = false, features = ["defmt"] }
 
 embassy-usb = { version = "0.6" }
 cortex-m = { version = "0.7.7" }
 cortex-m-rt = "0.7.5"
 embassy-time = { version = "0.5", features = ["tick-hz-32_768", "defmt"] }
-embassy-sync = { version = "0.8", features = ["defmt"] }
-embassy-nrf = { version = "0.10", features = [
+embassy-nrf = { version = "0.11", features = [
     "defmt",
     "nrf52840",
     "time-driver-rtc1",
@@ -58,7 +73,6 @@ arrayvec = { version = "0.7", default-features = false }
 rand = { version = "0.8.4", default-features = false }
 rand_core = { version = "0.6" }
 rand_chacha = { version = "0.3", default-features = false }
-heapless = { version = "0.9.2", default-features = false }
 
 [build-dependencies]
 xz2 = "0.1.7"

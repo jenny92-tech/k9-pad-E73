@@ -17,54 +17,69 @@ col_pins = ["P1_13", "P0_02", "P0_29", "P0_31"]
 # 去抖动配置
 debouncer = "default"
 
+# v0.9 schema：[layout].map 描述物理键位（只列真实存在的键），
+# 每层按键动作移到 [[keymap.layer]].keys，编码器动作移到 encoders 字段。
+# 物理排布（10 键 + 1 编码器）：
+# Row0: [编码器U4, 空, U2, SW1]
+# Row1: [SW2, SW3, SW4, SW5]
+# Row2: [SW6, SW7, SW8, SW9]
 [layout]
 rows = 3
 cols = 4
+map = """
+(e,0) [1]   (0,2) (0,3)
+(1,0) (1,1) (1,2) (1,3)
+(2,0) (2,1) (2,2) (2,3)
+"""
+
+[keymap]
 layers = 5
-# 10-key mapping + 1 encoder
-# Row0: [_, _, U2, SW1]
-# Row1: [SW2, SW3, SW4, SW5]
-# Row2: [SW6, SW7, SW8, SW9]
-keymap = [
-  # Layer 0 - Pad A (default)
-  [
-    ["_", "_", "Kc0", "Kc1"],
-    ["Kc2", "Kc3", "Kc4", "Kc5"],
-    ["Kc6", "Kc7", "Kc8", "Kc9"],
-  ],
-  # Layer 1 - Pad B
-  [
-    ["_", "_", "Kc0", "Kc1"],
-    ["Kc2", "Kc3", "Kc4", "Kc5"],
-    ["Kc6", "Kc7", "Kc8", "Kc9"],
-  ],
-  # Layer 2 - Pad C
-  [
-    ["_", "_", "Kc0", "Kc1"],
-    ["Kc2", "Kc3", "Kc4", "Kc5"],
-    ["Kc6", "Kc7", "Kc8", "Kc9"],
-  ],
-  # Layer 3 - Pad D
-  [
-    ["_", "_", "Kc0", "Kc1"],
-    ["Kc2", "Kc3", "Kc4", "Kc5"],
-    ["Kc6", "Kc7", "Kc8", "Kc9"],
-  ],
-  # Layer 4 - Pad E
-  [
-    ["_", "_", "Kc0", "Kc1"],
-    ["Kc2", "Kc3", "Kc4", "Kc5"],
-    ["Kc6", "Kc7", "Kc8", "Kc9"],
-  ],
-]
+
 # 编码器映射: [顺时针, 逆时针] - 非菜单模式下发送音量键
-encoder_map = [
-  [["AudioVolUp", "AudioVolDown"]],
-  [["AudioVolUp", "AudioVolDown"]],
-  [["AudioVolUp", "AudioVolDown"]],
-  [["AudioVolUp", "AudioVolDown"]],
-  [["AudioVolUp", "AudioVolDown"]],
-]
+[[keymap.layer]]
+name = "Pad A"
+keys = """
+        Kc0 Kc1
+Kc2 Kc3 Kc4 Kc5
+Kc6 Kc7 Kc8 Kc9
+"""
+encoders = [["AudioVolUp", "AudioVolDown"]]
+
+[[keymap.layer]]
+name = "Pad B"
+keys = """
+        Kc0 Kc1
+Kc2 Kc3 Kc4 Kc5
+Kc6 Kc7 Kc8 Kc9
+"""
+encoders = [["AudioVolUp", "AudioVolDown"]]
+
+[[keymap.layer]]
+name = "Pad C"
+keys = """
+        Kc0 Kc1
+Kc2 Kc3 Kc4 Kc5
+Kc6 Kc7 Kc8 Kc9
+"""
+encoders = [["AudioVolUp", "AudioVolDown"]]
+
+[[keymap.layer]]
+name = "Pad D"
+keys = """
+        Kc0 Kc1
+Kc2 Kc3 Kc4 Kc5
+Kc6 Kc7 Kc8 Kc9
+"""
+encoders = [["AudioVolUp", "AudioVolDown"]]
+
+[[keymap.layer]]
+name = "Pad E"
+keys = """
+        Kc0 Kc1
+Kc2 Kc3 Kc4 Kc5
+Kc6 Kc7 Kc8 Kc9
+"""
+encoders = [["AudioVolUp", "AudioVolDown"]]
 
 # TTC旋转编码器 (U4) E8A1-4C40-9B15
 # 9 pulse / 18 detent, 正交A/B信号

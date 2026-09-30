@@ -28,7 +28,7 @@
 | 消息队列 | `WouoUI_msg.c/h` | 输入消息环形队列 |
 | 字体数据 | `WouoUI_font.c/h` | ASCII 点阵字体 |
 | 用户配置 | `WouoUI_user.c/h` | 示例菜单树（未使用） |
-| K9-Pad 菜单 | `WouoUI_k9pad.c` | K9-Pad 专用菜单定义 |
+| K9-Pad 菜单 | `WouoUI_k9pad.c/h` | K9-Pad 专用菜单定义 + 主机确认弹窗（ShowHostDialog/GetHostDialogResult/ClearHostDialogResult） |
 | 平台接口 | `WouoUI_port.c/h` | Rust FFI 入口 |
 | 配置 | `WouoUI_conf.h` | 屏幕尺寸、动画参数 |
 | 公共头 | `WouoUI_common.h` | 类型、宏、内存函数声明 |

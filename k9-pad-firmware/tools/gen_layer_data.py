@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
 # INPUT:  sys, DIGIT_ICONS bitmap data (embedded)
-# OUTPUT: stdout — layer_digit_icons/main_layer_texts/pad_titles C arrays
+# OUTPUT: stdout — layer_digit_icons/main_layer_texts C arrays
 # POS:    Layer 数据生成器 — 输出 WouoUI_k9pad.c 中与 NUM_LAYERS 同步的查找表
 """Generate layer-dependent C data blocks for WouoUI_k9pad.c.
 
 Usage:
     python tools/gen_layer_data.py [NUM_LAYERS]
 
-Outputs the three arrays that must be kept in sync with NUM_LAYERS:
+Outputs the arrays that must be kept in sync with NUM_LAYERS:
   - layer_digit_icons[NUM_LAYERS]   (30x30 monochrome icons, 120 bytes each)
   - main_layer_texts[NUM_LAYERS]
-  - pad_titles[NUM_LAYERS]
-  - features_layer_texts[NUM_LAYERS]
 
 Copy the output into WouoUI_k9pad.c, replacing the existing blocks.
 Also update `#define NUM_LAYERS` in WouoUI_k9pad.c and
@@ -119,7 +117,7 @@ def gen_icon_array(n: int) -> str:
 
 
 def gen_text_arrays(n: int) -> str:
-    """Generate main_layer_texts, pad_titles, features_layer_texts."""
+    """Generate main_layer_texts."""
     lines = []
 
     # main_layer_texts
@@ -127,26 +125,6 @@ def gen_text_arrays(n: int) -> str:
     entries = [f'(char*)"+ Layer {i}"' for i in range(n)]
     lines.append(f"static char* main_layer_texts[NUM_LAYERS] = {{")
     # Wrap at ~3 per line
-    for start in range(0, n, 3):
-        chunk = entries[start:start + 3]
-        sep = "," if start + 3 < n else ""
-        lines.append(f"    {', '.join(chunk)}{sep}")
-    lines.append(f"}};")
-    lines.append("")
-
-    # pad_titles
-    lines.append(f"//--------Layer 子页面选项文本查找表 (gen_layer_data.py 生成，与 NUM_LAYERS 同步)")
-    entries = [f'(char*)"- Layer {i}"' for i in range(n)]
-    lines.append(f"static char* pad_titles[NUM_LAYERS] = {{")
-    for start in range(0, n, 3):
-        chunk = entries[start:start + 3]
-        sep = "," if start + 3 < n else ""
-        lines.append(f"    {', '.join(chunk)}{sep}")
-    lines.append(f"}};")
-
-    # features_layer_texts
-    entries = [f'(char*)"! Layer {i}"' for i in range(n)]
-    lines.append(f"static char* features_layer_texts[NUM_LAYERS] = {{")
     for start in range(0, n, 3):
         chunk = entries[start:start + 3]
         sep = "," if start + 3 < n else ""

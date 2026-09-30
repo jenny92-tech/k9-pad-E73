@@ -1,6 +1,6 @@
 // INPUT:  embassy_nrf(twim,gpio), driver::sh1107, settings, battery, menu, wououi, data_channel, mode, rmk
 // OUTPUT: pub run_display() async task
-// POS:    OLED 显示主循环，30FPS 菜单 / 1FPS 首页 / 数据通道渲染 / 屏幕自动休眠
+// POS:    OLED 显示主循环，30FPS 菜单 / 1FPS 首页 / 数据通道渲染 / 屏幕自动休眠 / 主机确认弹窗
 
 pub mod render;
 pub mod icons;
@@ -13,14 +13,15 @@ use embassy_nrf::Peri;
 use embassy_time::{Duration, Instant, Timer};
 
 use crate::battery::{self, BATTERY_STATUS};
-use crate::data_channel::{DisplayDataCache, DISPLAY_DATA};
+use crate::data_channel::{CompCache, DialogOutcome, DisplayDataCache, DIALOG_DATA, DIALOG_RESULT, DISPLAY_DATA};
 use crate::driver;
 use crate::driver::sh1107::Sh1107;
 use crate::menu::{MenuInput, MENU_INPUT, MENU_STATE, MenuState, PageId};
-use crate::mode::{CURRENT_MODE, NUM_LAYERS};
+use crate::mode::CURRENT_MODE;
 use crate::settings::{SETTINGS, keys};
 use crate::wououi::{WouoUI, WououiInput, SCREEN_WIDTH, SCREEN_HEIGHT};
-use render::{draw_keyboard_ui, draw_data_channel_ui};
+use k9_datachannel_proto::DialogResultCode;
+use render::{draw_keyboard_ui, draw_component_grid};
 use rmk::types::ble::BleState;
 use rmk::event::{ConnectionStatusChangeEvent, SubscribableEvent};
 
@@ -104,17 +105,6 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
         defmt::info!("Restored brightness: {}% (contrast={})", saved_brightness, contrast);
     }
 
-    // 从 flash 恢复每个 Pad 的数据通道设置
-    let mut confirmed_dc_functions: [u16; NUM_LAYERS as usize] = [0; NUM_LAYERS as usize];
-    for pad in 0..NUM_LAYERS {
-        let mask = SETTINGS.read(keys::DC_FUNCTIONS_PAD0 + pad, 0);
-        if mask != 0 {
-            wououi.set_enabled_functions(pad, mask as u16);
-            confirmed_dc_functions[pad as usize] = mask as u16;
-            defmt::info!("Restored dc_functions[{}] = 0x{:02x}", pad, mask);
-        }
-    }
-
     // 从 flash 恢复屏幕超时设置
     let saved_timeout = SETTINGS.read(keys::SCREEN_TIMEOUT, 20);
     wououi.set_screen_timeout(saved_timeout);
@@ -144,11 +134,24 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
     let mut menu_idle_ticks: u16 = 0;
     const MENU_TIMEOUT_TICKS: u16 = (1000 / MENU_FRAME_MS) * 30; // 30秒
 
-    // 数据通道显示缓存 + slot 轮播
+    // 弹窗独立超时（5 分钟兜底）：弹窗锁屏不受菜单空闲超时影响
+    let mut dialog_ticks: u16 = 0;
+    const DIALOG_TIMEOUT_TICKS: u16 = (1000 / MENU_FRAME_MS) * 300; // 5分钟
+
+    // 主机确认弹窗状态（BLE ShowDialog）
+    // 弹窗期间 menu_active 保持 true，按键经现有菜单路由零改动复用
+    let mut dialog_active = false;
+    // 新弹窗（选项选择器）：标题 + 选项 + 当前选中项（滚轮切换）
+    let mut dialog_kind = k9_datachannel_proto::DialogKind::ConfirmCancel;
+    let mut dialog_title: heapless::String<56> = heapless::String::new();
+    let mut dialog_options: [Option<heapless::String<56>>; 4] = [const { None }; 4];
+    let mut dialog_selection: u8 = 0;
+    let mut dialog_id: u8 = 0;
+
+    // 组件网格缓存（新架构：host 声明 LAYOUT_CFG/COMP_LAYOUT，设备本地渲染）；
+    // 旧 slot 缓存保留做 fallback（host 全切组件后移除）
+    let mut comp_cache = CompCache::new();
     let mut dc_cache = DisplayDataCache::new();
-    let mut dc_current_slot: u8 = 0;
-    let mut dc_rotation_timer = Instant::now();
-    const DC_ROTATION_INTERVAL: Duration = Duration::from_secs(4);
 
     // 获取状态发送器和接收器（电池由 battery 任务采样，这里只订阅）
     let menu_state_tx = MENU_STATE.sender();
@@ -192,11 +195,7 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
     // 显示主循环
     let display_future = async {
     // 变更检测状态（跨帧保持，避免 static mut）
-    let mut prev_dc_config = k9_datachannel_proto::PadConfig {
-        active_pad: 0xFF,
-        enabled_functions: 0xFFFF,
-    };
-    let mut prev_on_home: bool = true;
+    let mut prev_active_pad: u8 = 0xFF;
     let mut prev_active: bool = false;
 
     loop {
@@ -228,6 +227,49 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
             // 重置空闲计时（屏幕开启时）
             menu_idle_ticks = 0;
             last_screen_activity = now;
+
+            // 弹窗模式：滚轮切选项，Select/Back 确认/取消（劫持，不转发 wououi）
+            if dialog_active {
+                let count = dialog_options.iter().filter(|o| o.is_some()).count() as u8;
+                match input {
+                    MenuInput::ScrollUp => {
+                        if count > 0 {
+                            dialog_selection = (dialog_selection + count - 1) % count;
+                        }
+                    }
+                    MenuInput::ScrollDown => {
+                        if count > 0 {
+                            dialog_selection = (dialog_selection + 1) % count;
+                        }
+                    }
+                    MenuInput::Select => {
+                        let _ = DIALOG_RESULT.try_send(DialogOutcome {
+                            id: dialog_id,
+                            selection: dialog_selection,
+                            result: DialogResultCode::Confirm as u8,
+                        });
+                        defmt::info!("Dialog confirmed: id={} selection={}", dialog_id, dialog_selection);
+                        dialog_active = false;
+                        crate::menu::state::set_dialog_active(false);
+                        crate::menu::set_rmk_menu_mode(menu_active);
+                        last_screen_activity = now; // 弹窗关闭后不立刻休眠
+                    }
+                    MenuInput::Back => {
+                        let _ = DIALOG_RESULT.try_send(DialogOutcome {
+                            id: dialog_id,
+                            selection: 0,
+                            result: DialogResultCode::Cancel as u8,
+                        });
+                        defmt::info!("Dialog cancelled: id={}", dialog_id);
+                        dialog_active = false;
+                        crate::menu::state::set_dialog_active(false);
+                        crate::menu::set_rmk_menu_mode(menu_active);
+                        last_screen_activity = now; // 弹窗关闭后不立刻休眠
+                    }
+                    _ => {}
+                }
+                continue;
+            }
 
             match input {
                 MenuInput::EnterMenu => {
@@ -270,14 +312,72 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
 
         // 数据通道接收唤醒屏幕
         if !screen_on {
-            if let Ok(_) = DISPLAY_DATA.try_receive() {
+            // try_peek 只探测不消费：旧版 try_receive 把唤醒检测吃掉了第一条显示命令
+            //（注释自己写着 consumed command is lost）——睡眠时收到的第一条消息永远显示
+            // 不出来。改为 peek：命令保留在通道里，本帧后续 drain 正常吸收并渲染。
+            if let Ok(_) = DISPLAY_DATA.try_peek() {
                 defmt::info!("Screen wake: data channel received while screen off");
                 display.send_command(0xAF).await.ok(); // Display ON
                 display.set_contrast(brightness_to_contrast(current_brightness)).await.ok();
                 screen_on = true;
                 last_screen_activity = now;
-                // Note: the consumed data command is lost, but next loop iteration picks up more
             }
+        }
+
+        // 主机弹窗请求（ShowDialog）：强制锁屏 + 重置选项 + 进入弹窗模式。
+        // 选项由随后的 DialogOption 命令逐条填充（见 DISPLAY_DATA drain）。
+        while let Ok(req) = DIALOG_DATA.try_receive() {
+            if dialog_active {
+                // v1 取舍：新弹窗顶掉未决旧弹窗，旧的按 Timeout 回传
+                let _ = DIALOG_RESULT.try_send(DialogOutcome {
+                    id: dialog_id,
+                    selection: 0,
+                    result: DialogResultCode::Timeout as u8,
+                });
+                defmt::info!("Host dialog superseded: id={} -> Timeout", dialog_id);
+            }
+            if !screen_on {
+                defmt::info!("Screen wake: dialog request while screen off");
+                display.send_command(0xAF).await.ok(); // Display ON
+                display.set_contrast(brightness_to_contrast(current_brightness)).await.ok();
+                screen_on = true;
+                last_screen_activity = now;
+            }
+            dialog_active = true;
+            crate::menu::state::set_dialog_active(true);
+            // 弹窗期间吞掉滚轮/按键（不调音量、不进菜单），交给弹窗选择器
+            crate::menu::set_rmk_menu_mode(true);
+            dialog_id = req.id;
+            dialog_kind = req.kind;
+            dialog_title = req.title;
+            dialog_options = [const { None }; 4];
+            dialog_selection = 0;
+            dialog_ticks = 0;
+            menu_idle_ticks = 0;
+            defmt::info!("Host dialog show: id={} kind={:?}", dialog_id, defmt::Debug2Format(&dialog_kind));
+        }
+
+        // 非阻塞消费显示数据命令（任何模式都处理：组件值 / 弹窗选项 / wake）
+        while let Ok(cmd) = DISPLAY_DATA.try_receive() {
+            comp_cache.apply(&cmd);
+            dc_cache.apply(&cmd);
+            // 弹窗选项：ShowDialog 之后逐条到达，攒进弹窗缓存
+            if let crate::data_channel::DisplayCommand::DialogOption { id, index, label } = &cmd {
+                if dialog_active && *id == dialog_id && (*index as usize) < dialog_options.len() {
+                    dialog_options[*index as usize] = Some(label.clone());
+                    defmt::info!("Dialog option id={} index={}: {}", id, index, label.as_str());
+                }
+            }
+            // wake 标志：屏幕关着时唤醒显示（新通知等）
+            if matches!(cmd, crate::data_channel::DisplayCommand::SetCompValue { wake: true, .. })
+                && !screen_on
+            {
+                defmt::info!("Screen wake: wake=true component push");
+                display.send_command(0xAF).await.ok(); // Display ON
+                display.set_contrast(brightness_to_contrast(current_brightness)).await.ok();
+                screen_on = true;
+            }
+            last_screen_activity = now; // 数据通道活动重置超时
         }
 
         // 从 battery 任务读取最新电池状态（非阻塞，每帧检查一次）
@@ -312,9 +412,42 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
             }
         }
 
+        // 空闲计时（主循环，任何模式都跑——弹窗/菜单超时与渲染分支解耦）
+        if dialog_active {
+            dialog_ticks += 1;
+            if dialog_ticks > DIALOG_TIMEOUT_TICKS {
+                let _ = DIALOG_RESULT.try_send(DialogOutcome {
+                    id: dialog_id,
+                    selection: dialog_selection,
+                    result: DialogResultCode::Timeout as u8,
+                });
+                defmt::info!("Host dialog timeout (5min): id={}", dialog_id);
+                dialog_active = false;
+                crate::menu::state::set_dialog_active(false);
+                crate::menu::set_rmk_menu_mode(menu_active);
+                dialog_ticks = 0;
+                last_screen_activity = now;
+            }
+        } else {
+            menu_idle_ticks += 1;
+            if menu_idle_ticks > MENU_TIMEOUT_TICKS {
+                menu_active = false;
+                wououi.exit_menu();
+                defmt::info!("WouoUI: Menu timeout, returning to home");
+            }
+        }
+
         // 渲染 + 刷新（仅在屏幕开启时）
         if screen_on {
-        if menu_active {
+        if dialog_active {
+            // 弹窗选择器：标题 + 选项列表（滚轮切选项，Select 确认）
+            crate::display::render::draw_dialog(
+                &mut display,
+                dialog_title.as_str(),
+                &dialog_options,
+                dialog_selection,
+            );
+        } else if menu_active {
             // 菜单模式：使用 WouoUI 渲染
             // 限制帧间隔在合理范围，防止从低帧率(首页1FPS)切换时
             // 过大的 elapsed_ms 导致动画计算异常
@@ -343,6 +476,8 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
                     .write_value(embassy_nrf::pac::power::regs::Gpregret(0xA8));
                 cortex_m::peripheral::SCB::sys_reset();
             }
+
+            // （旧 wououi 弹窗路径已由新选项选择器替代——ShowDialog 走 DIALOG_DATA 分支）
 
             // C 回调请求进入 USB Bootloader（Settings -> To Bootloader）
             if wououi.take_usb_bl_request() {
@@ -436,107 +571,39 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
                 cortex_m::peripheral::SCB::sys_reset();
             }
 
-            // 检测数据通道配置变化，通知主机
-            {
-                let dc_enabled = wououi.is_data_channel_enabled(current_pad_index);
-                let functions = if dc_enabled {
-                    wououi.get_enabled_functions(current_pad_index)
-                } else {
-                    0
-                };
+            // 检测 active_pad 变化，通知主机
+            // enabled_functions 语义已废弃（显示由 host 推送驱动），恒定上报 0xFFFF 保持 wire 兼容
+            if current_pad_index != prev_active_pad {
+                prev_active_pad = current_pad_index;
                 let new_config = k9_datachannel_proto::PadConfig {
                     active_pad: current_pad_index,
-                    enabled_functions: functions,
+                    enabled_functions: 0xFFFF,
                 };
-                if new_config != prev_dc_config {
-                    prev_dc_config = new_config;
-                    crate::data_channel::DATA_CHANNEL_CONFIG.sender().send(new_config);
-                    defmt::info!(
-                        "DC config: pad={} functions=0x{:04x}",
-                        new_config.active_pad,
-                        new_config.enabled_functions
-                    );
-                }
+                crate::data_channel::DATA_CHANNEL_CONFIG.sender().send(new_config);
+                defmt::info!("DC config: pad={}", new_config.active_pad);
             }
 
-            // 持久化数据通道设置：回到主菜单时保存（子页面设置已确认）
-            {
-                let on_home = wououi.is_on_home_page();
-                if on_home && !prev_on_home {
-                    // 刚从子页面返回主菜单，保存变更的设置
-                    for pad in 0..NUM_LAYERS {
-                        let funcs = wououi.get_enabled_functions(pad);
-                        if funcs != confirmed_dc_functions[pad as usize] {
-                            confirmed_dc_functions[pad as usize] = funcs;
-                            SETTINGS.write(keys::DC_FUNCTIONS_PAD0 + pad, funcs as u8);
-                        }
-                    }
-                }
-                prev_on_home = on_home;
-            }
-
-            // 更新空闲计时器
-            menu_idle_ticks += 1;
-            if menu_idle_ticks > MENU_TIMEOUT_TICKS {
-                menu_active = false;
-                wououi.exit_menu();
-                defmt::info!("WouoUI: Menu timeout, returning to home");
-            }
         } else {
-            // 非阻塞消费显示数据命令
-            while let Ok(cmd) = DISPLAY_DATA.try_receive() {
-                dc_cache.apply(&cmd);
-                last_screen_activity = now; // 数据通道活动重置超时
-            }
-
-            // 屏幕自动休眠：仅在首页（非菜单）时检测超时
-            if now.duration_since(last_screen_activity) >= Duration::from_secs(screen_timeout_secs as u64) {
+            // 屏幕自动休眠：仅在首页（非菜单）时检测超时；弹窗激活时锁屏不睡
+            if !dialog_active
+                && now.duration_since(last_screen_activity) >= Duration::from_secs(screen_timeout_secs as u64) {
                 defmt::info!("Screen sleep: timeout {}s reached", screen_timeout_secs);
                 display.send_command(0xAE).await.ok(); // Display OFF
                 screen_on = false;
             }
 
-            // 检查当前 Pad 是否启用了数据通道
-            let dc_enabled = wououi.is_data_channel_enabled(current_pad_index);
-            let active_slots = dc_cache.active_count();
-
-            if dc_enabled && active_slots > 0 {
-                // 模式 2：数据通道布局（浮动头部 + 内容区）
-                // Slot 轮播：多个 slot 时每 4 秒切换
-                if active_slots > 1
-                    && now.duration_since(dc_rotation_timer) >= DC_ROTATION_INTERVAL
-                {
-                    dc_rotation_timer = now;
-                    // 找下一个有数据的 slot
-                    for _ in 0..8 {
-                        dc_current_slot = (dc_current_slot + 1) % 8;
-                        if dc_cache.slots[dc_current_slot as usize].is_some() {
-                            break;
-                        }
-                    }
-                }
-
-                // 确保当前 slot 有数据（可能被 clear 了）
-                if dc_cache.slots[dc_current_slot as usize].is_none() {
-                    // 找第一个有数据的 slot
-                    for i in 0..8u8 {
-                        if dc_cache.slots[i as usize].is_some() {
-                            dc_current_slot = i;
-                            break;
-                        }
-                    }
-                }
-
-                let slot_data = dc_cache.slots[dc_current_slot as usize].as_ref();
-                draw_data_channel_ui(
+            // 首页布局：新架构 = 组件网格（host 声明布局 + 实时推值）；
+            // 无组件时回退键盘状态页
+            let has_comps = comp_cache.comps.iter().any(|c| c.is_some());
+            if has_comps {
+                draw_component_grid(
                     &mut display,
                     current_mode.name(),
                     battery_status.percentage,
                     ble_connected,
-                    slot_data,
+                    &comp_cache,
                 );
             } else {
-                // 模式 1：居中显示（无数据通道功能启用）
                 draw_keyboard_ui(
                     &mut display,
                     current_mode.name(),

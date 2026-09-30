@@ -20,6 +20,21 @@ use embassy_sync::watch::Watch;
 #[cfg(not(test))]
 use core::sync::atomic::Ordering;
 
+/// 弹窗是否激活（display → controller 共享）：弹窗期间滚轮/确认/返回键全部劫持给弹窗。
+/// 用原子而不是复用 MENU_STATE：弹窗不是 wououi 菜单，但输入路由要像菜单一样拦截。
+#[cfg(not(test))]
+static DIALOG_ACTIVE: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
+#[cfg(not(test))]
+pub fn set_dialog_active(v: bool) {
+    DIALOG_ACTIVE.store(v, Ordering::Relaxed);
+}
+
+#[cfg(not(test))]
+pub fn dialog_active() -> bool {
+    DIALOG_ACTIVE.load(Ordering::Relaxed)
+}
+
 /// 菜单输入事件
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MenuInput {

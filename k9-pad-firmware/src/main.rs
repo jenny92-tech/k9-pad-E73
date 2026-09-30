@@ -83,8 +83,13 @@ mod keyboard {
         // CRITICAL: macro 还会自动生成 `watchdog_runner`（feature "watchdog" 默认开），
         // 必须包含 `watchdog_runner.run()` 喂狗，否则硬件 WDT 10s 超时硬复位设备。
         let mut wpm_processor = ::rmk::processor::builtin::wpm::WpmProcessor::new();
-        let mut usb_transport = ::rmk::usb::UsbTransport::new(driver, rmk_config.device_config);
-        let mut ble_transport = ::rmk::ble::BleTransport::new(&stack, rmk_config).await;
+        // v0.9：host_service 不再自带 run()，改为挂载到各 transport 内部驱动。
+        // v0.9+（上游 BLE 栈重构）：BleTransport 自持 BLE 栈，new(ble_controller, ble_addr, config)
+        // 不再接收外部 &stack；stack/HostResources 由宏移除。
+        let mut usb_transport =
+            ::rmk::usb::UsbTransport::new(driver, rmk_config.device_config).with_host_service(&host_service);
+        let mut ble_transport = ::rmk::ble::BleTransport::new(ble_controller, ble_addr, rmk_config)
+            .with_host_service(&host_service);
 
         // Run all tasks: devices + keyboard + transports + display + data channel + watchdog
         ::rmk::embassy_futures::join::join(
@@ -94,16 +99,13 @@ mod keyboard {
                     keyboard.run()
                 ),
                 ::rmk::embassy_futures::join::join(
-                    host_service.run(),
                     ::rmk::embassy_futures::join::join(
-                        ::rmk::embassy_futures::join::join(
-                            usb_transport.run(),
-                            ble_transport.run(),
-                        ),
-                        ::rmk::embassy_futures::join::join(
-                            wpm_processor.run(),
-                            watchdog_runner.run(),
-                        ),
+                        usb_transport.run(),
+                        ble_transport.run(),
+                    ),
+                    ::rmk::embassy_futures::join::join(
+                        wpm_processor.run(),
+                        watchdog_runner.run(),
                     ),
                 )
             ),

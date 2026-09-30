@@ -44,6 +44,15 @@ const SW1_TAP_KEYCODE: KeyCode = KeyCode::Hid(HidKeyCode::Kc1);
 /// - timer 跑赢 → 长按，发 EnterMenu（仅非菜单模式）
 /// - 下个 event 跑赢且是 release → 在 HOLD_THRESHOLD_MS 内释放 = 短按：
 ///   菜单模式发 Back；非菜单模式手动 send_keycode tap
+/// SW1 按下时的模式快照（release/长按决策用 press 时刻，避免 TOCTOU）
+#[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+enum Sw1PressMode {
+    Home,
+    Menu,
+    Dialog,
+}
+
 pub struct MenuController {
     /// 菜单是否激活（缓存）
     menu_active: bool,
@@ -51,6 +60,8 @@ pub struct MenuController {
     sw1_hold_activated: bool,
     /// SW1 按下时刻；None 表示未按下（也用作 "需要 race timer" 的信号）
     sw1_pressed_at: Option<Instant>,
+    /// SW1 按下瞬间的模式（弹窗/菜单在按住期间开关时，release 决策不乱）
+    sw1_press_mode: Sw1PressMode,
 }
 
 impl MenuController {
@@ -62,6 +73,7 @@ impl MenuController {
             menu_active: false,
             sw1_hold_activated: false,
             sw1_pressed_at: None,
+            sw1_press_mode: Sw1PressMode::Home,
         }
     }
 
@@ -127,7 +139,15 @@ impl MenuController {
     /// 处理 SW1（deferred key，RMK 不代发 keymap action）
     async fn handle_sw1(&mut self, pressed: bool) {
         if pressed {
-            // 按下：起 hold 计时
+            // 按下：快照当前模式（release/长按用 press 时刻决策，避免弹窗/菜单
+            // 在按住期间开关导致的 tap/Back/EnterMenu 错乱）
+            self.sw1_press_mode = if super::state::dialog_active() {
+                Sw1PressMode::Dialog
+            } else if self.menu_active {
+                Sw1PressMode::Menu
+            } else {
+                Sw1PressMode::Home
+            };
             self.sw1_pressed_at = Some(Instant::now());
             self.sw1_hold_activated = false;
             return;
@@ -143,14 +163,17 @@ impl MenuController {
             return;
         }
 
-        // 短按：菜单模式发 Back，否则手动 tap SW1_TAP_KEYCODE 给主机
-        if self.menu_active {
-            let _ = MENU_INPUT.try_send(MenuInput::Back);
-            defmt::info!("Menu: SW1 short press -> Back");
-        } else {
-            rmk::controller::send_keycode(SW1_TAP_KEYCODE, true);
-            rmk::controller::send_keycode(SW1_TAP_KEYCODE, false);
-            defmt::info!("Menu: SW1 short press -> tap");
+        // 短按：按 press 时刻的模式决策（Back 或 tap 给主机）
+        match self.sw1_press_mode {
+            Sw1PressMode::Dialog | Sw1PressMode::Menu => {
+                let _ = MENU_INPUT.try_send(MenuInput::Back);
+                defmt::info!("Menu: SW1 short press -> Back");
+            }
+            Sw1PressMode::Home => {
+                rmk::controller::send_keycode(SW1_TAP_KEYCODE, true);
+                rmk::controller::send_keycode(SW1_TAP_KEYCODE, false);
+                defmt::info!("Menu: SW1 short press -> tap");
+            }
         }
     }
 
@@ -159,7 +182,8 @@ impl MenuController {
         self.sw1_hold_activated = true;
         self.sw1_pressed_at = None; // 不再 race timer，等 release
 
-        if !self.menu_active {
+        // 长按：按 press 时刻的模式决策——只有 Home 才进菜单（弹窗/菜单中按住不触发）
+        if self.sw1_press_mode == Sw1PressMode::Home {
             let _ = MENU_INPUT.try_send(MenuInput::EnterMenu);
             defmt::info!("Menu: SW1 hold -> EnterMenu");
         }
@@ -167,7 +191,7 @@ impl MenuController {
 
     /// 处理确认键
     async fn handle_select(&mut self, pressed: bool) {
-        if self.menu_active && pressed {
+        if (self.menu_active || super::state::dialog_active()) && pressed {
             let _ = MENU_INPUT.try_send(MenuInput::Select);
             defmt::info!("Menu: Select pressed");
         }
@@ -179,10 +203,12 @@ impl MenuController {
             return;
         }
 
-        if self.menu_active {
+        // 菜单或弹窗激活时：滚轮交给 UI（弹窗 = 切选项 / 菜单 = 滚动）
+        if self.menu_active || super::state::dialog_active() {
+            // 顺时针=向下/下一个（与 state.rs 注释 + MENU_SYSTEM.md 一致）
             let input = match direction {
-                Direction::Clockwise => MenuInput::ScrollUp,
-                Direction::CounterClockwise => MenuInput::ScrollDown,
+                Direction::Clockwise => MenuInput::ScrollDown,
+                Direction::CounterClockwise => MenuInput::ScrollUp,
                 Direction::None => return,
             };
             let _ = MENU_INPUT.try_send(input);

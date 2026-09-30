@@ -1,6 +1,6 @@
 // INPUT:  WouoUI C library (extern "C" FFI)
-// OUTPUT: WouoUI struct, WououiInput enum, SCREEN_WIDTH/HEIGHT
-// POS:    WouoUI C 库的安全 Rust 封装，提供 init/tick/input/get_buffer
+// OUTPUT: WouoUI struct, WououiInput enum, SCREEN_WIDTH/HEIGHT, show_host_dialog/take_host_dialog_result
+// POS:    WouoUI C 库的安全 Rust 封装，提供 init/tick/input/get_buffer + 主机确认弹窗
 //! WouoUI FFI bindings for K9-Pad E73
 //!
 //! This module provides Rust bindings to the WouoUI C library for
@@ -102,15 +102,6 @@ extern "C" {
     /// Clear exit request flag
     fn WouoUI_K9Pad_ClearExitRequested();
 
-    /// Check if data channel is enabled for a pad (master "Data Ch" checkbox)
-    fn WouoUI_K9Pad_IsDataChannelEnabled(pad_index: u8) -> u8;
-
-    /// Get bitmask of enabled data channel functions for a pad
-    fn WouoUI_K9Pad_GetEnabledFunctions(pad_index: u8) -> u16;
-
-    /// Set enabled data channel functions for a pad from bitmask
-    fn WouoUI_K9Pad_SetEnabledFunctions(pad_index: u8, mask: u16);
-
     /// Check if DFU mode was requested
     fn WouoUI_K9Pad_GetDFURequested() -> u8;
 
@@ -134,6 +125,15 @@ extern "C" {
 
     /// Set screen timeout by seconds value
     fn WouoUI_K9Pad_SetScreenTimeout(seconds: u8);
+
+    /// 显示主机确认弹窗（BLE ShowDialog），text 为 0 结尾字符串
+    fn WouoUI_K9Pad_ShowHostDialog(text: *const u8);
+
+    /// 读取主机弹窗结果 (0=未决 1=确认 2=取消)
+    fn WouoUI_K9Pad_GetHostDialogResult() -> u8;
+
+    /// 清除主机弹窗结果
+    fn WouoUI_K9Pad_ClearHostDialogResult();
 }
 
 /// Safe Rust interface to WouoUI
@@ -382,38 +382,6 @@ impl WouoUI {
         }
     }
 
-    /// Check if data channel is enabled for a pad (master "Data Ch" checkbox)
-    pub fn is_data_channel_enabled(&self, pad: u8) -> bool {
-        if !self.initialized {
-            return false;
-        }
-        // SAFETY: WouoUI_K9Pad_IsDataChannelEnabled reads g_pad_dc_enabled[pad].
-        // Pure read, no side effects. The `initialized` check guarantees init was called.
-        unsafe { WouoUI_K9Pad_IsDataChannelEnabled(pad) != 0 }
-    }
-
-    /// Get bitmask of enabled data channel functions for a pad
-    /// Bit 1: Volume, Bit 2: Subs, Bit 3: Time
-    pub fn get_enabled_functions(&self, pad: u8) -> u16 {
-        if !self.initialized {
-            return 0;
-        }
-        // SAFETY: WouoUI_K9Pad_GetEnabledFunctions reads option .val fields
-        // from the C menu arrays. Pure read, no side effects.
-        unsafe { WouoUI_K9Pad_GetEnabledFunctions(pad) }
-    }
-
-    /// Set enabled data channel functions for a pad from bitmask
-    /// Bit 1: Volume, Bit 2: Subs, Bit 3: Time
-    pub fn set_enabled_functions(&mut self, pad: u8, mask: u16) {
-        if !self.initialized {
-            return;
-        }
-        // SAFETY: WouoUI_K9Pad_SetEnabledFunctions writes to option .val fields
-        // in the C menu arrays. The `initialized` check guarantees arrays exist.
-        unsafe { WouoUI_K9Pad_SetEnabledFunctions(pad, mask) }
-    }
-
     /// Check and consume DFU mode request from C callbacks
     pub fn take_dfu_request(&mut self) -> bool {
         if !self.initialized {
@@ -426,6 +394,46 @@ impl WouoUI {
             } else {
                 false
             }
+        }
+    }
+
+    /// 显示主机确认弹窗（BLE ShowDialog 命令）。
+    ///
+    /// 文本复制到栈上以 0 结尾的定长缓冲（最长 63 字节，超出截断）后传给 C 侧；
+    /// C 侧会再复制到内部静态缓冲，栈缓冲仅在本调用期间有效。
+    /// 调用前需确保菜单已激活（menu_active），否则弹窗不会被渲染。
+    pub fn show_host_dialog(&mut self, text: &str) {
+        if !self.initialized {
+            return;
+        }
+        let mut buf = [0u8; 64];
+        let bytes = text.as_bytes();
+        let n = bytes.len().min(buf.len() - 1);
+        buf[..n].copy_from_slice(&bytes[..n]);
+        // SAFETY: buf 以 0 结尾（数组零初始化 + 最多写 len-1 字节），在调用期间有效；
+        // C 侧 ShowHostDialog 会把内容复制到内部静态缓冲，不保留该指针。
+        // `initialized` 检查保证 C 库已初始化。
+        unsafe { WouoUI_K9Pad_ShowHostDialog(buf.as_ptr()) };
+    }
+
+    /// 读取并消费主机弹窗结果。
+    ///
+    /// 返回协议 DialogResultCode：`Some(0)`=Confirm / `Some(1)`=Cancel；`None`=未决。
+    /// （C 侧原始值 1=确认 2=取消，这里映射为协议码。）
+    pub fn take_host_dialog_result(&mut self) -> Option<u8> {
+        if !self.initialized {
+            return None;
+        }
+        // SAFETY: 读取并清零 C 侧 g_host_dialog_result 标志，纯标志操作。
+        // `initialized` 检查保证 C 库已初始化。
+        unsafe {
+            let result = match WouoUI_K9Pad_GetHostDialogResult() {
+                1 => 0, // C 确认 → DialogResultCode::Confirm
+                2 => 1, // C 取消 → DialogResultCode::Cancel
+                _ => return None,
+            };
+            WouoUI_K9Pad_ClearHostDialogResult();
+            Some(result)
         }
     }
 

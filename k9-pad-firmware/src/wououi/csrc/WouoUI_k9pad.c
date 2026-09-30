@@ -1,20 +1,20 @@
 // INPUT:  WouoUI.h
-// OUTPUT: K9Pad_MenuInit() — NUM_LAYERS 主菜单项 + Features/User/Settings/About 子页面 + SetBrightness + ScreenTimeout + QuickMenu
+// OUTPUT: K9Pad_MenuInit() — NUM_LAYERS 主菜单项 + User/Settings/About 子页面 + SetBrightness + ScreenTimeout + QuickMenu + HostDialog
 // POS:    K9-Pad 专用菜单树定义，被 WouoUI_port.c 调用
 /**
  * WouoUI K9-Pad Menu Configuration
  *
- * TitlePage main menu (NUM_LAYERS + 4 items):
- *   Layer 0..N-1 (direct switch) / User / Settings / Features / About
+ * TitlePage main menu (NUM_LAYERS + 3 items):
+ *   Layer 0..N-1 (direct switch) / User / Settings / About
  *
  * Sub-pages:
- *   Features: tree menu → Layer 0..N-1 checkbox sub-pages (Volume/Subs/Time)
  *   User: User A/B/C radio (BLE multi-device) + Clear Bond
  *   Settings: Brightness slider + Screen Off selector + Quick Menu + DFU Mode + To Bootloader
  *   About: firmware info
  */
 
 #include "WouoUI.h"
+#include "WouoUI_k9pad.h"
 
 //--------Layer 数量 — 唯一真相源 (C 侧)
 // SYNC: 必须与 mode.rs NUM_LAYERS 保持一致
@@ -22,13 +22,12 @@
 
 //--------定义页面对象
 static TitlePage main_page;
-static ListPage pad_pages[NUM_LAYERS];
-static ListPage features_page;
 static ListPage user_page;
 static ListPage settings_page;
 static ListPage about_page;
 static MsgWin msg_win;
 static ConfWin dfu_conf_win;
+static ConfWin host_dialog_win;
 static ValWin brightness_win;
 static ListWin screen_timeout_win;
 
@@ -43,6 +42,12 @@ static uint8_t g_exit_requested = 0;
 
 //--------DFU 模式请求标志 (由 Settings 回调设置，Rust 侧轮询)
 static uint8_t g_dfu_requested = 0;
+
+//--------主机确认弹窗 (BLE 数据通道 ShowDialog 命令触发，Rust 侧轮询结果)
+// g_host_dialog_result: 0=未决 1=确认 2=取消
+// 文本存到静态缓冲——ConfWin.content 只存指针，跨帧渲染不能引用 Rust 栈内存
+static uint8_t g_host_dialog_result = 0;
+static char g_host_dialog_text[64];
 
 //--------USB Bootloader 请求标志 (由 Settings 回调设置，Rust 侧轮询)
 static uint8_t g_usb_bl_requested = 0;
@@ -62,9 +67,7 @@ static char* screen_timeout_options[5] = {
 
 
 //--------页面选项数量 (由 NUM_LAYERS 派生)
-#define MAIN_PAGE_NUM       (NUM_LAYERS + 4)  // layers + User + Settings + Features + About
-#define PAD_PAGE_NUM        4                  // 标题 + Volume + Subs + Time (不随 layer 数变)
-#define FEATURES_PAGE_NUM   (NUM_LAYERS + 1)   // 标题 + N 个 Layer 入口
+#define MAIN_PAGE_NUM       (NUM_LAYERS + 3)  // layers + User + Settings + About
 #define USER_PAGE_NUM       5
 #define SETTINGS_PAGE_NUM   6
 #define ABOUT_PAGE_NUM      8
@@ -119,8 +122,8 @@ static const Icon layer_digit_icons[NUM_LAYERS] = {
     }
 };
 
-//--------固定菜单项图标 (User, Settings, Features, About)
-static const Icon fixed_icons[4] = {
+//--------固定菜单项图标 (User, Settings, About)
+static const Icon fixed_icons[3] = {
     // [0] User - Home icon
     {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0xC0, 0xE0, 0xF0, 0xF8, 0xFC, 0xFE, 0xFF, 0xFE, 0xFC,
@@ -139,14 +142,7 @@ static const Icon fixed_icons[4] = {
         0x00, 0x00, 0x0C, 0x3E, 0x7E, 0xFE, 0xFF, 0x7F, 0x3F, 0x3F, 0x7F, 0x7F, 0xFC, 0xFC, 0xF8, 0xF8, 0xFC, 0xFC, 0x7F, 0x7F, 0x3F, 0x3F, 0x7F, 0xFF, 0xFE, 0x7E, 0x3E, 0x0C, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00
     },
-    // [2] Features - Checklist icon
-    {
-        0x00, 0x00, 0xF8, 0xFC, 0xFE, 0x0E, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x06, 0x0E, 0xFE, 0xFC, 0xF8, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x18, 0x0C, 0x86, 0xC0, 0x60, 0x00, 0xFE, 0xFE, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x18, 0x0C, 0x86, 0xC0, 0x60, 0x00, 0xFE, 0xFE, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x1F, 0x3F, 0x7F, 0x70, 0x60, 0x60, 0x60, 0x61, 0x63, 0x66, 0x60, 0x67, 0x67, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x70, 0x7F, 0x3F, 0x1F, 0x00, 0x00, 0x00
-    },
-    // [3] About - Info icon
+    // [2] About - Info icon
     {
         0x00, 0x00, 0x80, 0xE0, 0xF0, 0xF8, 0xFC, 0x3C, 0x1E, 0x0E, 0x0E, 0x06, 0x06, 0x06, 0x06,
         0x06, 0x06, 0x06, 0x06, 0x0E, 0x0E, 0x1E, 0x3C, 0xFC, 0xF8, 0xF0, 0xE0, 0x80, 0x00, 0x00,
@@ -162,22 +158,6 @@ static const Icon fixed_icons[4] = {
 //--------主菜单图标 (WouoUI_UserInit 中填充)
 // 声明为 uint8_t 以支持运行时 memcpy，传入 TitlePageInit 时强转为 Icon*
 static uint8_t main_icon_storage[MAIN_PAGE_NUM][ICON_BUFFSIZE];
-
-//--------Layer 子页面选项文本查找表 (gen_layer_data.py 生成，与 NUM_LAYERS 同步)
-static char* pad_titles[NUM_LAYERS] = {
-    (char*)"- Layer 0", (char*)"- Layer 1", (char*)"- Layer 2",
-    (char*)"- Layer 3", (char*)"- Layer 4"
-};
-static char* features_layer_texts[NUM_LAYERS] = {
-    (char*)"! Layer 0", (char*)"! Layer 1", (char*)"! Layer 2",
-    (char*)"! Layer 3", (char*)"! Layer 4"
-};
-
-//--------Layer 子页面选项 (Features → Layer N, WouoUI_UserInit 中初始化)
-static Option pad_option_arrays[NUM_LAYERS][PAD_PAGE_NUM];
-
-//--------Features 页面选项 (WouoUI_UserInit 中填充)
-static Option features_option_array[FEATURES_PAGE_NUM];
 
 //--------User 页面选项 (BLE 多设备)
 static Option user_option_array[USER_PAGE_NUM] = {
@@ -212,20 +192,6 @@ static Option about_option_array[ABOUT_PAGE_NUM] = {
 
 //--------回调函数
 
-// Features 页面回调：跳转到对应 Layer 的功能配置子页面
-static bool FeaturesPage_Callback(const Page *cur_page, InputMsg msg) {
-    if (msg != msg_click) return false;
-
-    Option* opt = WouoUI_ListTitlePageGetSelectOpt(cur_page);
-    if (opt == NULL) return false;
-
-    // order 1..NUM_LAYERS → pad_pages[0..NUM_LAYERS-1]
-    if (opt->order >= 1 && opt->order <= NUM_LAYERS) {
-        WouoUI_JumpToPage((PageAddr)cur_page, &pad_pages[opt->order - 1]);
-    }
-    return false;
-}
-
 // 主菜单回调：Layer 0-4 直接切换并退出，其余跳转子页面
 static bool MainPage_Callback(const Page *cur_page, InputMsg msg) {
     if (msg != msg_click) return false;
@@ -238,13 +204,12 @@ static bool MainPage_Callback(const Page *cur_page, InputMsg msg) {
         g_selected_pad = opt->order;
         g_exit_requested = 1;
     } else {
-        // 固定菜单项 (User, Settings, Features, About)
+        // 固定菜单项 (User, Settings, About)
         uint8_t fixed_idx = opt->order - NUM_LAYERS;
         switch (fixed_idx) {
             case 0: WouoUI_JumpToPage((PageAddr)cur_page, &user_page); break;
             case 1: WouoUI_JumpToPage((PageAddr)cur_page, &settings_page); break;
-            case 2: WouoUI_JumpToPage((PageAddr)cur_page, &features_page); break;
-            case 3: WouoUI_JumpToPage((PageAddr)cur_page, &about_page); break;
+            case 2: WouoUI_JumpToPage((PageAddr)cur_page, &about_page); break;
         }
     }
     return false;
@@ -293,6 +258,27 @@ static bool DFUConfWin_Callback(const Page *cur_page, InputMsg msg) {
             break;
         case msg_return:
             return true; // Return to settings
+        default:
+            break;
+    }
+    return false;
+}
+
+// 主机确认弹窗回调 (auto_deal_with_msg=false, 手动处理所有消息)
+// up/down 切换按钮，click 按 conf_ret 写结果，return 视为取消；两者都跳回进入弹窗前的页面
+static bool HostDialogConfWin_Callback(const Page *cur_page, InputMsg msg) {
+    ConfWin *cw = (ConfWin *)cur_page;
+    switch (msg) {
+        case msg_up:
+        case msg_down:
+            WouoUI_ConfWinPageToggleBtn(cw);
+            break;
+        case msg_click:
+            g_host_dialog_result = cw->conf_ret ? 1 : 2; // Yes→确认 No→取消
+            return true; // 返回进入弹窗前的页面 (last_page)
+        case msg_return:
+            g_host_dialog_result = 2; // 返回键视为取消
+            return true;
         default:
             break;
     }
@@ -374,15 +360,13 @@ void WouoUI_UserInit(void) {
         main_option_array[i] = (Option){.text = main_layer_texts[i]};
         memcpy(main_icon_storage[i], layer_digit_icons[i], ICON_BUFFSIZE);
     }
-    // 固定菜单项 (User, Settings, Features, About)
+    // 固定菜单项 (User, Settings, About)
     main_option_array[NUM_LAYERS + 0] = (Option){.text = (char*)"+ User"};
     main_option_array[NUM_LAYERS + 1] = (Option){.text = (char*)"+ Settings"};
-    main_option_array[NUM_LAYERS + 2] = (Option){.text = (char*)"+ Features"};
-    main_option_array[NUM_LAYERS + 3] = (Option){.text = (char*)"+ About"};
+    main_option_array[NUM_LAYERS + 2] = (Option){.text = (char*)"+ About"};
     memcpy(main_icon_storage[NUM_LAYERS + 0], fixed_icons[0], ICON_BUFFSIZE);
     memcpy(main_icon_storage[NUM_LAYERS + 1], fixed_icons[1], ICON_BUFFSIZE);
     memcpy(main_icon_storage[NUM_LAYERS + 2], fixed_icons[2], ICON_BUFFSIZE);
-    memcpy(main_icon_storage[NUM_LAYERS + 3], fixed_icons[3], ICON_BUFFSIZE);
 
     // 主菜单 (TitlePage)
     WouoUI_TitlePageInit(
@@ -392,26 +376,6 @@ void WouoUI_UserInit(void) {
         (Icon *)main_icon_storage,
         MainPage_Callback
     );
-
-    // 生成 Features 页面选项
-    features_option_array[0] = (Option){.text = (char*)"- Features"};
-    for (uint8_t i = 0; i < NUM_LAYERS; i++) {
-        features_option_array[i + 1] = (Option){.text = features_layer_texts[i]};
-    }
-
-    // 生成 Pad 功能配置子页面
-    for (uint8_t i = 0; i < NUM_LAYERS; i++) {
-        pad_option_arrays[i][0] = (Option){.text = pad_titles[i]};
-        pad_option_arrays[i][1] = (Option){.text = (char*)"@ Volume", .val = 0};
-        pad_option_arrays[i][2] = (Option){.text = (char*)"@ Subs",   .val = 0};
-        pad_option_arrays[i][3] = (Option){.text = (char*)"@ Time",   .val = 0};
-        WouoUI_ListPageInit(&pad_pages[i], PAD_PAGE_NUM, pad_option_arrays[i], Setting_none, NULL);
-        WouoUI_ListPageSetFirstSelectable(&pad_pages[i], 1);
-    }
-
-    // Features 页面 (树状菜单入口)
-    WouoUI_ListPageInit(&features_page, FEATURES_PAGE_NUM, features_option_array, Setting_none, FeaturesPage_Callback);
-    WouoUI_ListPageSetFirstSelectable(&features_page, 1);
 
     // User 页面 (radio buttons for BLE multi-device)
     WouoUI_ListPageInit(&user_page, USER_PAGE_NUM, user_option_array, Setting_radio, UserPage_Callback);
@@ -430,6 +394,10 @@ void WouoUI_UserInit(void) {
     // DFU/Bootloader 确认弹窗 (auto_deal_with_msg=false, 由回调手动控制)
     WouoUI_ConfWinPageInit(&dfu_conf_win, NULL, NULL, NULL, false, false, false, 2, DFUConfWin_Callback);
     WouoUI_SetPageAutoDealWithMsg(&dfu_conf_win.page, false);
+
+    // 主机确认弹窗 (BLE ShowDialog, 按钮 Yes/No, auto_deal_with_msg=false 由回调手动控制)
+    WouoUI_ConfWinPageInit(&host_dialog_win, NULL, (char*)"Yes", (char*)"No", false, false, false, 2, HostDialogConfWin_Callback);
+    WouoUI_SetPageAutoDealWithMsg(&host_dialog_win.page, false);
 
     // 亮度调节弹窗 (auto_get_bg_opt=true, auto_set_bg_opt=true)
     // 自动读写 settings_page 中 Brightness 选项的 val
@@ -491,35 +459,6 @@ void WouoUI_K9Pad_ClearExitRequested(void) {
     g_exit_requested = 0;
 }
 
-// Get bitmask of enabled data channel functions for a pad
-// Bit 1: Volume display
-// Bit 2: Subscriber count
-// Bit 3: Time display
-uint16_t WouoUI_K9Pad_GetEnabledFunctions(uint8_t pad_index) {
-    if (pad_index >= NUM_LAYERS) return 0;
-    Option *opts = pad_option_arrays[pad_index];
-    uint16_t mask = 0;
-    if (opts[1].val) mask |= (1 << 1);  // Volume  -> bit 1
-    if (opts[2].val) mask |= (1 << 2);  // Subs    -> bit 2
-    if (opts[3].val) mask |= (1 << 3);  // Time    -> bit 3
-    return mask;
-}
-
-// Set enabled data channel functions for a pad from bitmask
-// Bit 1: Volume, Bit 2: Subs, Bit 3: Time
-void WouoUI_K9Pad_SetEnabledFunctions(uint8_t pad_index, uint16_t mask) {
-    if (pad_index >= NUM_LAYERS) return;
-    Option *opts = pad_option_arrays[pad_index];
-    opts[1].val = (mask & (1 << 1)) ? 1 : 0;  // Volume
-    opts[2].val = (mask & (1 << 2)) ? 1 : 0;  // Subs
-    opts[3].val = (mask & (1 << 3)) ? 1 : 0;  // Time
-}
-
-// Check if data channel is enabled for a pad (any function checkbox is checked)
-uint8_t WouoUI_K9Pad_IsDataChannelEnabled(uint8_t pad_index) {
-    return WouoUI_K9Pad_GetEnabledFunctions(pad_index) != 0 ? 1 : 0;
-}
-
 // Check if DFU mode was requested
 uint8_t WouoUI_K9Pad_GetDFURequested(void) {
     return g_dfu_requested;
@@ -528,6 +467,42 @@ uint8_t WouoUI_K9Pad_GetDFURequested(void) {
 // Clear DFU request flag
 void WouoUI_K9Pad_ClearDFURequested(void) {
     g_dfu_requested = 0;
+}
+
+//--------主机确认弹窗 (BLE ShowDialog)
+
+// 显示主机确认弹窗：复制文本到静态缓冲后从当前页跳入弹窗
+// 由 Rust 侧收到 BLE ShowDialog 命令后调用（调用前需确保菜单已激活）
+void WouoUI_K9Pad_ShowHostDialog(const char* text) {
+    if (text == NULL) return;
+
+    // 手动拷贝并保证 0 结尾（ConfWin.content 只存指针，不能引用调用方栈内存）
+    uint8_t i = 0;
+    while (i < sizeof(g_host_dialog_text) - 1 && text[i] != '\0') {
+        g_host_dialog_text[i] = text[i];
+        i++;
+    }
+    g_host_dialog_text[i] = '\0';
+
+    host_dialog_win.content = g_host_dialog_text;
+    host_dialog_win.conf_ret = false; // 默认选中 No
+    g_host_dialog_result = 0;         // 清除上一次结果
+
+    Page *cur = WouoUI_GetCurrentPage();
+    if (cur != NULL && cur != (Page *)&host_dialog_win) {
+        WouoUI_JumpToPage((PageAddr)cur, &host_dialog_win);
+    }
+    // cur == host_dialog_win: 新弹窗顶掉未决旧弹窗 (v1 取舍)，只需刷新文本，无需再跳
+}
+
+// 读取主机弹窗结果 (0=未决 1=确认 2=取消)
+uint8_t WouoUI_K9Pad_GetHostDialogResult(void) {
+    return g_host_dialog_result;
+}
+
+// 清除主机弹窗结果
+void WouoUI_K9Pad_ClearHostDialogResult(void) {
+    g_host_dialog_result = 0;
 }
 
 // Check if USB bootloader mode was requested

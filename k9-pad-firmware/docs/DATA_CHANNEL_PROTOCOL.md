@@ -53,6 +53,8 @@ Every packet uses a fixed 4-byte header followed by a variable-length payload:
 | 0x05 | ACK            | KB -> Host      | Generic acknowledgement              |
 | 0x10 | PING           | Bidirectional   | Heartbeat request                    |
 | 0x11 | PONG           | Bidirectional   | Heartbeat response                   |
+| 0x20 | SHOW_DIALOG    | Host -> KB      | Show confirm/cancel dialog (v2)      |
+| 0x21 | DIALOG_RESULT  | KB -> Host      | User's dialog choice (v2)            |
 
 ### Command Details
 
@@ -64,16 +66,31 @@ payload formats.
 keyboard responds with a STATUS_RESP packet.
 
 **STATUS_RESP (0x03)** -- Keyboard sends its current pad configuration (active pad
-index and enabled function bitmask). Sent in response to GET_STATUS or
-unsolicited at boot.
+index; `enabled_functions` is deprecated -- always `0xFFFF`). Sent in response
+to GET_STATUS or unsolicited at boot.
 
 **CONFIG_CHANGED (0x04)** -- Keyboard notifies the host that the user changed
-settings via the on-device menu. Contains the new PadConfig.
+the active Pad via the on-device menu. Contains the new PadConfig.
 
 **ACK (0x05)** -- Generic acknowledgement. No payload.
 
 **PING (0x10)** / **PONG (0x11)** -- Heartbeat pair. No payload. Either side can
 send PING; the receiver replies with PONG.
+
+**SHOW_DIALOG (0x20)** -- *(protocol v2)* Host asks the keyboard to show a
+confirm/cancel dialog on the OLED (TYPE = TEXT). Payload:
+`dialog_id(1B) + flags(1B, reserved=0) + UTF-8 text` (text up to 58 bytes,
+ASCII only -- the firmware has no CJK font). The dialog preempts the current
+screen, the user picks Yes/No with the encoder + confirm key, and SW1 backs
+out as cancel. A new SHOW_DIALOG supersedes a pending one (the old one is
+answered with Timeout). An unanswered dialog times out with the menu idle
+timeout (~30 s).
+
+**DIALOG_RESULT (0x21)** -- *(protocol v2)* Keyboard reports the outcome of a
+dialog (TYPE = TEXT). Payload: `dialog_id(1B) + result(1B)` where result is
+0 = Confirm, 1 = Cancel, 2 = Timeout. Hosts should check
+`DeviceCapabilities.protocol_version >= 2` before sending SHOW_DIALOG; older
+firmware silently discards unknown commands.
 
 ---
 
@@ -158,14 +175,19 @@ Clears the specified display slot.
 +------------+----------+----------+
 ```
 - `active_pad`: 0 = Pad A, 1 = Pad B, 2 = Pad C
-- `enabled_functions`: 16-bit bitmask (see Section 5)
+- `enabled_functions`: **deprecated** -- 16-bit bitmask (see Section 5). Display
+  is push-driven: the device shows whatever slots the host pushes. Firmware
+  always reports `0xFFFF`; hosts must ignore this field. Kept for wire
+  compatibility only.
 
 ---
 
-## 5. Function Bitmask
+## 5. Function Bitmask (deprecated)
 
-The `enabled_functions` field in PadConfig is a 16-bit bitmask. Currently defined
-bits:
+The `enabled_functions` field in PadConfig is a 16-bit bitmask. **Deprecated:**
+it no longer drives any decision on either side -- firmware reports `0xFFFF`
+and hosts ignore it. The bit definitions below are retained only to document
+the legacy wire format:
 
 | Bit | Mask   | Name        | Description                   |
 |-----|--------|-------------|-------------------------------|
@@ -175,8 +197,6 @@ bits:
 | 3   | 0x0008 | TIME        | Time display                  |
 
 Bits 4-15 are reserved for future use and should be set to 0.
-
-**Example:** Volume + Time enabled = `0x0002 | 0x0008` = `0x000A`
 
 ---
 
@@ -199,7 +219,7 @@ The data channel uses a custom GATT service:
 
 **TX (Keyboard -> Host):**
 - Properties: Read, Notify
-- Used by the keyboard to send responses (STATUS_RESP, CONFIG_CHANGED, ACK, PONG)
+- Used by the keyboard to send responses (STATUS_RESP, CONFIG_CHANGED, ACK, PONG, DIALOG_RESULT)
 - Maximum notification size: 64 bytes
 
 ### MTU Requirement
@@ -240,12 +260,12 @@ The typical lifecycle of a data channel session:
    |  or begin polling (USB)                    |
    |                                             |
    |                            User navigates   |  (3) Menu interaction
-   |                            menu, changes    |
-   |                            Pad or functions |
+   |                            menu, switches   |
+   |                            the active Pad   |
    |                                             |
-   |  <-- CONFIG_CHANGED (new PadConfig) -------|  (4) Notify host
+   |  <-- CONFIG_CHANGED (new active_pad) ------|  (4) Notify host
    |                                             |
-   |  Host starts/stops data providers          |  (5) Adjust
+   |  Host updates UI (active pad display)      |  (5) Adjust
    |                                             |
    |  --- SET_DISPLAY (text/numeric/...) -------->  (6) Push data
    |  --- SET_DISPLAY (progress) ---------------->
@@ -259,22 +279,24 @@ The typical lifecycle of a data channel session:
 **Step-by-step:**
 
 1. On boot or BLE connection, the keyboard sends a `STATUS_RESP` with its current
-   `PadConfig` (active pad and enabled functions).
+   `PadConfig` (active pad; `enabled_functions` is always `0xFFFF`).
 2. The host subscribes to TX characteristic notifications (BLE) or begins polling
    the CDC port (USB).
-3. The user navigates the on-device menu and changes the active Pad or
-   enables/disables display functions.
-4. The keyboard sends `CONFIG_CHANGED` with the updated bitmask.
-5. The host starts or stops its data providers (e.g., volume monitor, subscriber
-   API poller, clock) based on the new bitmask.
-6. The host pushes `SET_DISPLAY` packets for each enabled function's slot.
+3. The user navigates the on-device menu and switches the active Pad.
+4. The keyboard sends `CONFIG_CHANGED` with the new `active_pad`
+   (`enabled_functions` remains `0xFFFF`).
+5. The host uses the report for UI display only. Data providers (volume monitor,
+   subscriber API poller, clock, ...) run unconditionally -- there is no
+   device-side function gating.
+6. The host pushes `SET_DISPLAY` packets for whatever slots it wants shown; the
+   device displays any slot that has data.
 7. Either side can send `PING`/`PONG` for connection health monitoring.
 
 ---
 
 ## 9. Display Slot Rotation
 
-When multiple display functions are enabled simultaneously, the keyboard rotates
+When the host pushes data to multiple slots simultaneously, the keyboard rotates
 through the active slots on the OLED:
 
 - Each function maps to a fixed **slot_id** (0-7)
@@ -287,9 +309,9 @@ through the active slots on the OLED:
 | 2    | Time        |
 | 3-7  | Reserved    |
 
-- The keyboard cycles through enabled slots every **3-5 seconds** with animated
-  transitions
-- The host should keep all enabled slots up-to-date, regardless of which slot is
+- A slot is "active" as soon as it has data; the keyboard cycles through active
+  slots every **3-5 seconds** with animated transitions
+- The host should keep all pushed slots up-to-date, regardless of which slot is
   currently displayed
 - Sending `CLEAR` to a slot removes its content from the rotation
 
@@ -342,34 +364,34 @@ Full packet (9 bytes):
 01 02 05 00 01 C7 CF FF FF
 ```
 
-### Config changed: Pad B, Volume + Time enabled
+### Config changed: Pad B active
 
 ```
 CMD: 04 (CONFIG_CHANGED)
 TYPE: 10 (PAD_CONFIG)
 LEN:  03 00 (3 bytes)
-PAYLOAD: 01 0A 00
-         ^  ^^^^
-         |  0x000A = VOLUME(bit1) | TIME(bit3)
+PAYLOAD: 01 FF FF
+         ^  ^^^^^
+         |  enabled_functions = 0xFFFF (deprecated field, always 0xFFFF)
          Pad B (index 1)
 
 Full packet (7 bytes):
-04 10 03 00 01 0A 00
+04 10 03 00 01 FF FF
 ```
 
-### Status response: Pad A, FOLLOW_PC enabled
+### Status response: Pad A active
 
 ```
 CMD: 03 (STATUS_RESP)
 TYPE: 10 (PAD_CONFIG)
 LEN:  03 00 (3 bytes)
-PAYLOAD: 00 01 00
-         ^  ^^^^
-         |  0x0001 = FOLLOW_PC(bit0)
+PAYLOAD: 00 FF FF
+         ^  ^^^^^
+         |  enabled_functions = 0xFFFF (deprecated field, always 0xFFFF)
          Pad A (index 0)
 
 Full packet (7 bytes):
-03 10 03 00 00 01 00
+03 10 03 00 00 FF FF
 ```
 
 ### Ping / Pong heartbeat
@@ -389,6 +411,32 @@ The TYPE field is not meaningful for heartbeat commands.
 
 ```
 05 01 00 00
+```
+
+### Show dialog "Reboot?" with dialog_id 7, user confirms
+
+```
+SHOW_DIALOG (13 bytes):
+CMD: 20 (SHOW_DIALOG)
+TYPE: 01 (TEXT)
+LEN:  09 00 (9 bytes: 1 id + 1 flags + 7 chars)
+PAYLOAD: 07 00 52 65 62 6F 6F 74 3F
+              R  e  b  o  o  t  ?
+
+Full packet (13 bytes):
+20 01 09 00 07 00 52 65 62 6F 6F 74 3F
+
+DIALOG_RESULT (6 bytes):
+CMD: 21 (DIALOG_RESULT)
+TYPE: 01 (TEXT)
+LEN:  02 00
+PAYLOAD: 07 00
+            ^  ^
+            |  0 = Confirm
+            dialog_id 7
+
+Full packet (6 bytes):
+21 01 02 00 07 00
 ```
 
 ---
@@ -424,8 +472,10 @@ const HEADER_SIZE: usize = 4;
 const MAX_PAYLOAD_SIZE: usize = 60;
 
 // Enums
-enum CommandId { SetDisplay, GetStatus, StatusResp, ConfigChanged, Ack, Ping, Pong }
+enum CommandId { SetDisplay, GetStatus, StatusResp, ConfigChanged, Ack, Ping, Pong,
+                 ShowDialog, DialogResult }
 enum DataType { Text, Numeric, Progress, IconId, KeyValue, Clear, PadConfig }
+enum DialogResultCode { Confirm = 0, Cancel = 1, Timeout = 2 }
 
 // Structs
 struct PacketHeader { cmd, data_type, payload_len }
@@ -442,6 +492,8 @@ fn build_status_resp(buf, config) -> Option<usize>
 fn build_ping(buf) -> Option<usize>
 fn build_pong(buf) -> Option<usize>
 fn build_ack(buf) -> Option<usize>
+fn build_show_dialog(buf, dialog_id, text) -> Option<usize>
+fn build_dialog_result(buf, dialog_id, result) -> Option<usize>
 ```
 
 All builder functions write into a caller-provided `&mut [u8]` buffer and return
