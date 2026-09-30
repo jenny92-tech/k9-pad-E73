@@ -129,7 +129,7 @@ async fn run_usb(_device: Option<String>) {
     eprintln!("USB feature is not enabled. Rebuild with `--features usb`.");
 }
 
-async fn run_test_sequence<T: Transport>(client: &K9Client<T>) {
+async fn run_test_sequence<T: Transport + 'static>(client: &K9Client<T>) {
     println!();
 
     // 1. GetCapabilities

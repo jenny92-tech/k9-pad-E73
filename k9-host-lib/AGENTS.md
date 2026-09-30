@@ -8,7 +8,7 @@ Workspace 内的核心通信 crate，被 `k9-host-app` 桌面应用依赖。对�
 ## 逻辑
 
 1. **Transport 抽象层**（`src/transport/`）：定义 `Transport` trait（async send/receive/disconnect），提供 BLE（bluest）和 USB CDC（serialport）两种实现，均通过 feature flag 控制。
-2. **K9Client**（`src/client.rs`）：泛型 `K9Client<T: Transport>`，封装协议层的 packet 构建/解析，提供 `push_text`、`push_numeric`、`push_progress`、`clear_slot`、`ping`、`get_status`、`get_capabilities` 等高层方法。内部 Mutex 保证请求-响应序列化。
+2. **K9Client**（`src/client.rs`）：泛型 `K9Client<T: Transport>`（内部 `Arc<T>`），封装协议层的 packet 构建/解析，提供 `push_text`、`push_numeric`、`push_progress`、`clear_slot`、`ping`、`get_status`、`get_capabilities`、`show_dialog` 等高层方法。`new()` 时 spawn 常驻 reader task：响应类包经 oneshot 转发给等待中的请求（`request_lock` 序列化），设备事件（ConfigChanged / DialogResult）经 `broadcast::Sender<DeviceEvent>` 分发，外部通过 `subscribe_events()` 订阅。
 3. **AI Quota**（`src/ai_quota/`，feature-gated）：读取 Claude Code / Codex CLI 的 OAuth 凭证，调用用量 API，返回标准化的 `QuotaInfo`。
 4. **lib.rs**：统一 re-export，隐藏内部结构。
 

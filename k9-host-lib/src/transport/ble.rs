@@ -233,10 +233,16 @@ impl Transport for BleTransport {
         if !self.connected.load(Ordering::Relaxed) {
             return Err(TransportError::NotConnected);
         }
-        self.rx_char
-            .write_without_response(data)
-            .await
-            .map_err(|e| TransportError::SendFailed(format!("{e}")))
+        // BLE 写入按 64 字节补零：数据通道包最大 64 字节、解析端按 header.payload_len
+        // 取有效长度；与 USB HID（固定 64 字节 report）路径对齐。
+        if data.len() <= 64 {
+            let mut padded = [0u8; 64];
+            padded[..data.len()].copy_from_slice(data);
+            self.rx_char.write_without_response(&padded).await
+        } else {
+            self.rx_char.write_without_response(data).await
+        }
+        .map_err(|e| TransportError::SendFailed(format!("{e}")))
     }
 
     async fn receive(&self) -> Result<Vec<u8>, TransportError> {
