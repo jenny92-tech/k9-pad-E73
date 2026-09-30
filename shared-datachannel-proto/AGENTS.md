@@ -9,8 +9,10 @@
 ## 逻辑
 
 4 字节头（CMD+TYPE+LEN）+ payload，最大 64 字节。
-Protocol version 1（`PROTOCOL_VERSION` 常量）；支持 `GetCapabilities`/`CapabilitiesResp`
-命令对查询协议版本和固件版本，`DeviceCapabilities` 结构体（4 bytes wire format）。
+Protocol version 2（`PROTOCOL_VERSION` 常量）；v2 新增 `ShowDialog`/`DialogResult`
+命令对（主机下发确认弹窗、设备回传用户选择，增量兼容）。
+支持 `GetCapabilities`/`CapabilitiesResp` 命令对查询协议版本和固件版本，
+`DeviceCapabilities` 结构体（4 bytes wire format）。
 
 ## 约束
 
