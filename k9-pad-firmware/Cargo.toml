@@ -20,7 +20,7 @@ embassy-sync = { version = "0.8", features = ["defmt"] }
 # 表来判断 keyboard.toml 与 feature 的奇偶性）。optional + 无任何 feature 引用它，
 # 所以 host 端永不编译；ARM 构建实际使用的是下方 target-specific 条目（同名依赖，
 # cargo 会做 feature 统一）。删除此 stub 会导致固件构建报 storage parity 宏错误。
-rmk = { git = "https://github.com/jenny92-tech/rmk", rev = "6e70e358", optional = true, features = [
+rmk = { git = "https://github.com/jenny92-tech/rmk", rev = "e99fca72", optional = true, features = [
     "async_matrix", "nrf52840_ble", "data_channel", "controller", "adafruit_bl",
 ] }
 
@@ -28,23 +28,23 @@ rmk = { git = "https://github.com/jenny92-tech/rmk", rev = "6e70e358", optional 
 [target.'cfg(all(target_arch = "arm", target_os = "none"))'.dependencies]
 # Git forks pinned by commit hash — these are custom forks with K9-Pad-specific
 # patches not yet upstreamed. Pin by rev (not branch) for reproducibility.
-rmk = { git = "https://github.com/jenny92-tech/rmk", rev = "6e70e358", features = [
+rmk = { git = "https://github.com/jenny92-tech/rmk", rev = "e99fca72", features = [
     "async_matrix", "nrf52840_ble", "data_channel", "controller", "adafruit_bl",
 ] }
 embedded-graphics = "0.8"
 embedded-hal-async = "1.0"
-nrf-sdc = { git = "https://github.com/alexmoon/nrf-sdc", rev = "abe49d22ebfc85fae134eb082fbfddf752016a55", features = [
+nrf-sdc = { version = "0.4.0", features = [
     "defmt",
     "peripheral",
     "central",
     "nrf52840",
 ] }
-nrf-mpsl = { git = "https://github.com/alexmoon/nrf-sdc", rev = "abe49d22ebfc85fae134eb082fbfddf752016a55", features = [
+nrf-mpsl = { version = "0.4.0", features = [
     "defmt",
     "critical-section-impl",
     "nrf52840",
 ] }
-bt-hci = { version = "0.9", default-features = false, features = ["defmt"] }
+bt-hci = { version = "0.10", default-features = false, features = ["defmt"] }
 
 embassy-usb = { version = "0.6" }
 cortex-m = { version = "0.7.7" }

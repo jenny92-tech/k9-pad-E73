@@ -129,3 +129,7 @@ enabled = true
 # Optional: battery/charge pins (not set yet)
 # battery_adc_pin = "vddh"
 # charge_state.pin = "P0_07"
+
+# KeyboardEvent 订阅名额：keyboard 任务 + BLE 唤醒/休眠的临时订阅 + 固件菜单控制器（menu/controller.rs）
+[event.keyboard]
+subs = 4

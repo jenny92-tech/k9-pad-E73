@@ -1,9 +1,9 @@
-// INPUT:  rmk(KeyEvent, KeyboardEventPos, RotaryEncoder), menu::state, embassy_time
+// INPUT:  rmk(KeyboardEvent, KeyboardEventPos, RotaryEncoder), menu::state, embassy_time
 // OUTPUT: menu_controller_task() async task
 // POS:    监听 SW1/编码器/确认键 → 转换为 MenuInput 发送到 channel
 // menu/controller.rs - 菜单控制器
 //
-// 订阅 KeyEvent；自行用 embassy_time::Timer 在 firmware 这边做 hold/tap 判定：
+// 订阅 RMK 的 KeyboardEvent（矩阵发布、早于 controller 拦截，所以被吞的键这里也能看到）；自行用 embassy_time::Timer 在 firmware 这边做 hold/tap 判定：
 // - SW1 短按（<HOLD_THRESHOLD_MS 释放）→ 手动 send_keycode(Kc1) tap 给主机；菜单模式下改发 Back
 // - SW1 长按（≥HOLD_THRESHOLD_MS）→ 进入菜单
 //
@@ -12,9 +12,8 @@
 // 自己跑 timer，不再依赖 RMK 的 deferred_state。
 
 use embassy_time::{Duration, Instant, Timer};
-use rmk::controller::KeyEvent;
 use rmk::embassy_futures::select::{select, Either};
-use rmk::event::{EventSubscriber, KeyPos, KeyboardEventPos, RotaryEncoderPos};
+use rmk::event::{EventSubscriber, KeyPos, KeyboardEvent, KeyboardEventPos, RotaryEncoderPos, SubscribableEvent};
 use rmk::input_device::rotary_encoder::Direction;
 use rmk::types::keycode::{HidKeyCode, KeyCode};
 
@@ -77,10 +76,10 @@ impl MenuController {
         }
     }
 
-    /// 主循环：订阅 KeyEvent + 在 SW1 按下时 race hold timer
+    /// 主循环：订阅 KeyboardEvent + 在 SW1 按下时 race hold timer
     pub async fn run(&mut self) -> ! {
-        let mut subscriber = rmk::controller::key_event_subscriber()
-            .expect("key_event_subscriber: out of slots");
+        // 订阅名额由 keyboard.toml [event.keyboard] subs 决定
+        let mut subscriber = KeyboardEvent::subscriber();
 
         loop {
             match self.sw1_pressed_at {
@@ -101,8 +100,8 @@ impl MenuController {
         }
     }
 
-    /// 处理 KeyEvent
-    async fn on_key_event(&mut self, event: KeyEvent) {
+    /// 处理 KeyboardEvent
+    async fn on_key_event(&mut self, keyboard_event: KeyboardEvent) {
         // 更新菜单状态缓存
         let old_active = self.menu_active;
         if let Some(state) = MENU_STATE.try_get() {
@@ -112,8 +111,6 @@ impl MenuController {
             defmt::info!("Menu active changed: {} -> {}", old_active, self.menu_active);
         }
 
-        let keyboard_event = event.keyboard_event;
-
         match keyboard_event.pos {
             KeyboardEventPos::Key(KeyPos { row, col }) => {
                 self.handle_matrix_key(row, col, keyboard_event.pressed).await;
@@ -121,6 +118,8 @@ impl MenuController {
             KeyboardEventPos::RotaryEncoder(RotaryEncoderPos { id, direction }) => {
                 self.handle_encoder(id, direction, keyboard_event.pressed).await;
             }
+            // Combo / Macro / Virtual 是 RMK 内部合成的事件，不来自物理键
+            _ => {}
         }
     }
 

@@ -8,7 +8,7 @@
 
 ## 逻辑
 
-`controller.rs` 监听 KeyEvent/编码器 → MenuInput channel → `display.rs` 消费
+`controller.rs` 订阅 RMK KeyboardEvent（按键/编码器） → MenuInput channel → `display.rs` 消费
 
 ## 约束
 

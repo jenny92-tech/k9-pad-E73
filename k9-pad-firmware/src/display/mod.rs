@@ -495,7 +495,7 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
                 current_pad_index = selected_pad;
                 let mode = crate::mode::KeyboardMode::from_layer(selected_pad);
                 current_mode = mode;
-                rmk::set_default_layer(selected_pad);
+                rmk::controller::set_default_layer(selected_pad);
                 // 广播模式变更
                 mode_tx.send(mode);
                 defmt::info!("Pad switched to {} (layer {})", mode.name(), selected_pad);
@@ -543,13 +543,13 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
             let selected_user = wououi.get_selected_user();
             if selected_user != current_user {
                 current_user = selected_user;
-                rmk::switch_ble_profile(selected_user);
+                rmk::controller::switch_ble_profile(selected_user);
                 defmt::info!("User switched to User {} (profile {})", selected_user, selected_user);
             }
 
             // 检测 Clear Bond 请求
             if wououi.take_clear_bond_request() {
-                rmk::clear_ble_bond();
+                rmk::controller::clear_ble_bond();
                 defmt::info!("Clear bond for User {} (profile {})", current_user, current_user);
             }
 
@@ -566,8 +566,11 @@ pub async fn run_display(i2c: Twim<'static>, reset: Peri<'static, P0_06>) {
             }
             if wououi.take_erase_all_request() {
                 defmt::info!("Erase all (RMK storage + app settings)");
-                rmk::reset_all_storage().await;
                 SETTINGS.erase();
+                // 只是把擦除请求排进 RMK 存储任务；它擦完整个存储区（含配对）后自己重启。
+                // 这里不能立刻 sys_reset，否则可能在擦除前就复位。10s 兜底远大于擦除耗时。
+                rmk::reset_all_storage().await;
+                Timer::after_secs(10).await;
                 cortex_m::peripheral::SCB::sys_reset();
             }
 
